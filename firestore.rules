@@ -1,0 +1,158 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isMember(orgId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid));
+    }
+
+    function memberRole(orgId) {
+      return get(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid)).data.role;
+    }
+
+    function hasRole(orgId, roles) {
+      return isMember(orgId) && memberRole(orgId) in roles;
+    }
+
+    function canManageOrg(orgId) {
+      return hasRole(orgId, ['owner']);
+    }
+
+    function canManageUsers(orgId) {
+      return hasRole(orgId, ['owner', 'admin']);
+    }
+
+    function canWriteAccounting(orgId) {
+      return hasRole(orgId, ['owner', 'admin', 'accountant']);
+    }
+
+    function canWriteSalesPurchases(orgId) {
+      return hasRole(orgId, ['owner', 'admin', 'accountant', 'clerk']);
+    }
+
+    // ---- Users ----
+    match /users/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // ---- Invitations ----
+    match /invitations/{invitationId} {
+      // Anyone signed in can read invitations addressed to their email
+      allow read: if isSignedIn() &&
+        (resource.data.email == request.auth.token.email ||
+         canManageUsers(resource.data.orgId));
+
+      // Only org admins/owners can create invitations
+      allow create: if isSignedIn() && canManageUsers(request.resource.data.orgId);
+
+      // Invitee can update their own invitation status; admins can update any
+      allow update: if isSignedIn() &&
+        (resource.data.email == request.auth.token.email ||
+         canManageUsers(resource.data.orgId));
+
+      allow delete: if isSignedIn() && canManageUsers(resource.data.orgId);
+    }
+
+    // ---- Organizations ----
+    match /organizations/{orgId} {
+      allow read: if isMember(orgId);
+      allow create: if isSignedIn();
+      allow update: if canManageOrg(orgId);
+      allow delete: if canManageOrg(orgId);
+
+      // Members
+      match /members/{memberId} {
+        allow read: if isMember(orgId);
+        // Member doc id must equal user id (enforces self-write only)
+        allow create: if isSignedIn() && (
+          request.auth.uid == memberId ||
+          canManageUsers(orgId)
+        );
+        allow update: if canManageUsers(orgId);
+        allow delete: if canManageUsers(orgId) || request.auth.uid == memberId;
+      }
+
+      // Settings
+      match /settings/{settingId} {
+        allow read: if isMember(orgId);
+        allow write: if canManageOrg(orgId);
+      }
+
+      // Accounting
+      match /accounts/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteAccounting(orgId);
+      }
+      match /journalEntries/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteAccounting(orgId);
+      }
+
+      // Sales (clerk allowed)
+      match /customers/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteSalesPurchases(orgId);
+      }
+      match /salesInvoices/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteSalesPurchases(orgId);
+      }
+      match /quotes/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteSalesPurchases(orgId);
+      }
+      match /creditNotes/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteSalesPurchases(orgId);
+      }
+      match /receipts/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteSalesPurchases(orgId);
+      }
+
+      // Purchases (clerk allowed)
+      match /suppliers/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteSalesPurchases(orgId);
+      }
+      match /purchaseInvoices/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteSalesPurchases(orgId);
+      }
+      match /purchaseOrders/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteSalesPurchases(orgId);
+      }
+      match /debitNotes/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteSalesPurchases(orgId);
+      }
+      match /payments/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteSalesPurchases(orgId);
+      }
+
+      // Banking (accountant or above)
+      match /bankAccounts/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteAccounting(orgId);
+      }
+      match /bankTransactions/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteAccounting(orgId);
+      }
+      match /reconciliations/{document=**} {
+        allow read: if isMember(orgId);
+        allow write: if canWriteAccounting(orgId);
+      }
+    }
+  }
+}
