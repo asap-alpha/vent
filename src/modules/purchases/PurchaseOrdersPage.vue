@@ -1,38 +1,59 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-6">
-      <h1 class="text-h4 font-weight-bold">Purchase Orders</h1>
-      <v-spacer />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">New PO</v-btn>
-    </div>
+    <PageHeader title="Purchase Orders">
+      <template #actions>
+        <v-btn color="primary" prepend-icon="mdi-plus" size="small" @click="openCreate">
+          New PO
+        </v-btn>
+      </template>
+    </PageHeader>
 
-    <v-card elevation="1">
+    <v-card>
+      <div class="d-flex align-center flex-wrap ga-2 pa-4 pb-0">
+        <v-spacer />
+        <v-text-field
+          v-model="search"
+          placeholder="Search..."
+          prepend-inner-icon="mdi-magnify"
+          hide-details
+          density="compact"
+          style="max-width: 240px"
+        />
+      </div>
       <v-data-table
         :headers="headers"
         :items="purchaseOrders"
         :loading="billsStore.loading"
         :items-per-page="25"
+        :search="search"
       >
         <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
         <template #item.total="{ item }">{{ formatCurrency(item.total, currency) }}</template>
         <template #item.status="{ item }">
-          <v-chip :color="statusColor(item.status)" size="small" variant="tonal">{{ item.status }}</v-chip>
+          <v-chip :color="statusColor(item.status)" size="x-small" variant="tonal">{{ item.status }}</v-chip>
         </template>
         <template #item.actions="{ item }">
           <v-btn
             v-if="item.status !== 'converted'"
             icon="mdi-arrow-right-bold"
-            size="small"
+            size="x-small"
             variant="text"
             color="success"
             title="Convert to bill"
             @click="openConvert(item)"
           />
-          <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
-          <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item.id)" />
+          <v-btn icon="mdi-pencil" size="x-small" variant="text" @click="openEdit(item)" />
+          <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="confirmDelete(item.id)" />
         </template>
         <template #no-data>
-          <div class="text-center pa-8 text-grey">No purchase orders yet.</div>
+          <EmptyState
+            icon="mdi-clipboard-list-outline"
+            title="No purchase orders yet"
+            description="Create a purchase order to request goods or services from suppliers."
+            action-label="New PO"
+            action-icon="mdi-plus"
+            @action="openCreate"
+          />
         </template>
       </v-data-table>
     </v-card>
@@ -112,6 +133,8 @@ import { formatDate, formatDateISO } from '@/utils/date'
 import { addDays } from 'date-fns'
 import LineItemsEditor from '@/components/common/LineItemsEditor.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import type { PurchaseOrder, PurchaseOrderStatus, BillLine } from '@/types/purchases'
 
 const billsStore = useBillsStore()
@@ -120,6 +143,7 @@ const orgStore = useOrganizationStore()
 
 const purchaseOrders = computed(() => billsStore.purchaseOrders)
 const currency = computed(() => orgStore.currentOrg?.currency || 'GHS')
+const search = ref('')
 
 const supplierOptions = computed(() =>
   suppliersStore.activeSuppliers.map((s) => ({ title: s.name, value: s.id }))

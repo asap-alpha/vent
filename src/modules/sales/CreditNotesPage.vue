@@ -1,17 +1,31 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-6">
-      <h1 class="text-h4 font-weight-bold">Credit Notes</h1>
-      <v-spacer />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">New Credit Note</v-btn>
-    </div>
+    <PageHeader title="Credit Notes">
+      <template #actions>
+        <v-btn color="primary" prepend-icon="mdi-plus" size="small" @click="openCreate">
+          New Credit Note
+        </v-btn>
+      </template>
+    </PageHeader>
 
-    <v-card elevation="1">
+    <v-card>
+      <div class="d-flex align-center flex-wrap ga-2 pa-4 pb-0">
+        <v-spacer />
+        <v-text-field
+          v-model="search"
+          placeholder="Search..."
+          prepend-inner-icon="mdi-magnify"
+          hide-details
+          density="compact"
+          style="max-width: 240px"
+        />
+      </div>
       <v-data-table
         :headers="headers"
         :items="creditNotes"
         :loading="invoicesStore.loading"
         :items-per-page="25"
+        :search="search"
       >
         <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
         <template #item.invoiceNumber="{ item }">
@@ -19,10 +33,17 @@
         </template>
         <template #item.total="{ item }">{{ formatCurrency(item.total, currency) }}</template>
         <template #item.actions="{ item }">
-          <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item.id)" />
+          <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="confirmDelete(item.id)" />
         </template>
         <template #no-data>
-          <div class="text-center pa-8 text-grey">No credit notes yet.</div>
+          <EmptyState
+            icon="mdi-file-undo-outline"
+            title="No credit notes yet"
+            description="Issue a credit note to adjust or refund an invoice."
+            action-label="New Credit Note"
+            action-icon="mdi-plus"
+            @action="openCreate"
+          />
         </template>
       </v-data-table>
     </v-card>
@@ -96,6 +117,8 @@ import { formatCurrency } from '@/utils/currency'
 import { formatDate, formatDateISO } from '@/utils/date'
 import LineItemsEditor from '@/components/common/LineItemsEditor.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import type { InvoiceLine } from '@/types/sales'
 
 const invoicesStore = useInvoicesStore()
@@ -104,6 +127,7 @@ const orgStore = useOrganizationStore()
 
 const creditNotes = computed(() => invoicesStore.creditNotes)
 const currency = computed(() => orgStore.currentOrg?.currency || 'GHS')
+const search = ref('')
 
 const customerOptions = computed(() =>
   customersStore.activeCustomers.map((c) => ({ title: c.name, value: c.id }))

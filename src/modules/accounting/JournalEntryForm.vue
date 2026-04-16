@@ -1,15 +1,14 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-6">
-      <v-btn icon="mdi-arrow-left" variant="text" :to="{ name: 'journal-entries' }" />
-      <h1 class="text-h4 font-weight-bold ml-2">
-        {{ editing ? 'Edit Journal Entry' : 'New Journal Entry' }}
-      </h1>
-    </div>
+    <PageHeader
+      :title="editing ? 'Edit Journal Entry' : 'New Journal Entry'"
+      :back-to="{ name: 'journal-entries' }"
+    />
 
-    <v-card elevation="1">
+    <v-card class="mb-4">
       <v-form ref="formRef" @submit.prevent="save('posted')">
-        <v-card-text>
+        <v-card-text class="pa-5">
+          <div class="text-subtitle-2 font-weight-bold mb-3">Entry Details</div>
           <v-row>
             <v-col cols="12" md="3">
               <v-text-field
@@ -26,11 +25,13 @@
               <v-text-field v-model="form.memo" label="Memo / Description" />
             </v-col>
           </v-row>
+        </v-card-text>
 
-          <v-divider class="my-4" />
+        <v-divider />
 
-          <div class="d-flex align-center mb-2">
-            <h3 class="text-subtitle-1 font-weight-bold">Lines</h3>
+        <v-card-text class="pa-5">
+          <div class="d-flex align-center mb-3">
+            <div class="text-subtitle-2 font-weight-bold">Lines</div>
             <v-spacer />
             <v-btn size="small" prepend-icon="mdi-plus" variant="tonal" @click="addLine">
               Add Line
@@ -133,10 +134,11 @@
             :updated-at="loadedEntry.updatedAt"
           />
         </v-card-text>
-        <v-card-actions class="px-4 pb-4">
+
+        <v-card-actions class="pa-4 pt-0">
           <v-spacer />
           <v-btn variant="text" :to="{ name: 'journal-entries' }">Cancel</v-btn>
-          <v-btn variant="outlined" :loading="saving" @click="save('draft')">Save as Draft</v-btn>
+          <v-btn variant="outlined" :loading="saving" @click="save('draft')">Save Draft</v-btn>
           <v-btn color="primary" :loading="saving" :disabled="!balanced" @click="save('posted')">
             Post Entry
           </v-btn>
@@ -156,6 +158,7 @@ import { required } from '@/utils/validation'
 import { formatCurrency } from '@/utils/currency'
 import { totalDebits, totalCredits, isBalanced } from '@/utils/accounting'
 import { formatDateISO } from '@/utils/date'
+import PageHeader from '@/components/common/PageHeader.vue'
 import AuditInfo from '@/components/common/AuditInfo.vue'
 import type { JournalLine, JournalEntry } from '@/types/accounting'
 

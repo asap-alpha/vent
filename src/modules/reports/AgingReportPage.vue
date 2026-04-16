@@ -1,10 +1,8 @@
 <template>
-  <div>
-    <div class="d-flex align-center mb-6">
-      <h1 class="text-h4 font-weight-bold">Aging Report</h1>
-    </div>
+  <div class="aging-report">
+    <PageHeader title="Aging Report" />
 
-    <v-card elevation="1" class="mb-4">
+    <v-card class="mb-4">
       <v-tabs v-model="mode" color="primary" grow>
         <v-tab value="receivables">
           <v-icon start>mdi-cash-plus</v-icon>
@@ -19,44 +17,44 @@
 
     <v-row class="mb-2">
       <v-col cols="12" md="2">
-        <v-card elevation="1" class="pa-3">
+        <v-card class="pa-3">
           <div class="text-caption text-grey">Current</div>
           <div class="text-h6 font-weight-bold">{{ formatCurrency(totals.current, currency) }}</div>
         </v-card>
       </v-col>
       <v-col cols="12" md="2">
-        <v-card elevation="1" class="pa-3">
+        <v-card class="pa-3">
           <div class="text-caption text-grey">1-30 days</div>
           <div class="text-h6 font-weight-bold text-warning">{{ formatCurrency(totals.b30, currency) }}</div>
         </v-card>
       </v-col>
       <v-col cols="12" md="2">
-        <v-card elevation="1" class="pa-3">
+        <v-card class="pa-3">
           <div class="text-caption text-grey">31-60 days</div>
           <div class="text-h6 font-weight-bold text-warning">{{ formatCurrency(totals.b60, currency) }}</div>
         </v-card>
       </v-col>
       <v-col cols="12" md="2">
-        <v-card elevation="1" class="pa-3">
+        <v-card class="pa-3">
           <div class="text-caption text-grey">61-90 days</div>
           <div class="text-h6 font-weight-bold text-error">{{ formatCurrency(totals.b90, currency) }}</div>
         </v-card>
       </v-col>
       <v-col cols="12" md="2">
-        <v-card elevation="1" class="pa-3">
+        <v-card class="pa-3">
           <div class="text-caption text-grey">90+ days</div>
           <div class="text-h6 font-weight-bold text-error">{{ formatCurrency(totals.b90plus, currency) }}</div>
         </v-card>
       </v-col>
       <v-col cols="12" md="2">
-        <v-card elevation="1" class="pa-3" :color="mode === 'receivables' ? 'success' : 'error'">
+        <v-card class="pa-3" :color="mode === 'receivables' ? 'success' : 'error'">
           <div class="text-caption text-white">Total {{ mode === 'receivables' ? 'Owed' : 'Owing' }}</div>
           <div class="text-h6 font-weight-bold text-white">{{ formatCurrency(totals.total, currency) }}</div>
         </v-card>
       </v-col>
     </v-row>
 
-    <v-card elevation="1">
+    <v-card>
       <v-data-table
         :headers="headers"
         :items="rows"
@@ -89,6 +87,7 @@ import { useCustomersStore } from '@/stores/customers'
 import { useSuppliersStore } from '@/stores/suppliers'
 import { useOrganizationStore } from '@/stores/organization'
 import { formatCurrency } from '@/utils/currency'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const invoicesStore = useInvoicesStore()
 const billsStore = useBillsStore()
@@ -195,3 +194,16 @@ watch(() => orgStore.orgId, (id) => {
   }
 })
 </script>
+
+<style scoped>
+@media print {
+  .v-navigation-drawer,
+  .v-app-bar,
+  .v-tabs {
+    display: none !important;
+  }
+  .aging-report {
+    padding: 0;
+  }
+}
+</style>

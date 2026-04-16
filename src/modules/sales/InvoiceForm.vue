@@ -1,15 +1,14 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-6">
-      <v-btn icon="mdi-arrow-left" variant="text" :to="{ name: 'invoices' }" />
-      <h1 class="text-h4 font-weight-bold ml-2">
-        {{ editing ? 'Edit Invoice' : 'New Invoice' }}
-      </h1>
-    </div>
+    <PageHeader
+      :title="editing ? 'Edit Invoice' : 'New Invoice'"
+      :back-to="{ name: 'invoices' }"
+    />
 
-    <v-card elevation="1">
+    <v-card class="mb-4">
       <v-form ref="formRef" @submit.prevent="save('sent')">
-        <v-card-text>
+        <v-card-text class="pa-5">
+          <div class="text-subtitle-2 font-weight-bold mb-3">Invoice Details</div>
           <v-row>
             <v-col cols="12" md="4">
               <v-select
@@ -31,18 +30,23 @@
               <v-text-field v-model="form.dueDateStr" label="Due Date" type="date" :rules="[required]" />
             </v-col>
           </v-row>
+        </v-card-text>
 
-          <v-divider class="my-4" />
+        <v-divider />
 
+        <v-card-text class="pa-5">
+          <div class="text-subtitle-2 font-weight-bold mb-3">Line Items</div>
           <LineItemsEditor v-model="form.lines" :currency="currency" />
+        </v-card-text>
 
+        <v-divider />
+
+        <v-card-text class="pa-5">
+          <div class="text-subtitle-2 font-weight-bold mb-3">Additional Information</div>
           <v-textarea
             v-model="form.notes"
             label="Notes"
             rows="2"
-            variant="outlined"
-            density="comfortable"
-            class="mt-4"
           />
 
           <v-alert v-if="error" type="error" variant="tonal" class="mt-4">{{ error }}</v-alert>
@@ -55,10 +59,11 @@
             :updated-at="loadedInvoice.updatedAt"
           />
         </v-card-text>
-        <v-card-actions class="px-4 pb-4">
+
+        <v-card-actions class="pa-4 pt-0">
           <v-spacer />
           <v-btn variant="text" :to="{ name: 'invoices' }">Cancel</v-btn>
-          <v-btn variant="outlined" :loading="saving" @click="save('draft')">Save as Draft</v-btn>
+          <v-btn variant="outlined" :loading="saving" @click="save('draft')">Save Draft</v-btn>
           <v-btn color="primary" :loading="saving" @click="save('sent')">Save &amp; Send</v-btn>
         </v-card-actions>
       </v-form>
@@ -75,6 +80,7 @@ import { useOrganizationStore } from '@/stores/organization'
 import { required } from '@/utils/validation'
 import { formatDateISO } from '@/utils/date'
 import { addDays } from 'date-fns'
+import PageHeader from '@/components/common/PageHeader.vue'
 import LineItemsEditor from '@/components/common/LineItemsEditor.vue'
 import AuditInfo from '@/components/common/AuditInfo.vue'
 import type { InvoiceLine, InvoiceStatus, SalesInvoice } from '@/types/sales'

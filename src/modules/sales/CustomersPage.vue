@@ -1,34 +1,57 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-6">
-      <h1 class="text-h4 font-weight-bold">Customers</h1>
-      <v-spacer />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">
-        New Customer
-      </v-btn>
-    </div>
+    <PageHeader title="Customers">
+      <template #actions>
+        <v-btn color="primary" prepend-icon="mdi-plus" size="small" @click="openCreate">
+          New Customer
+        </v-btn>
+      </template>
+    </PageHeader>
 
-    <v-card elevation="1">
+    <v-card>
+      <div class="d-flex align-center flex-wrap ga-2 pa-4 pb-0">
+        <v-spacer />
+        <v-text-field
+          v-model="search"
+          placeholder="Search..."
+          prepend-inner-icon="mdi-magnify"
+          hide-details
+          density="compact"
+          style="max-width: 240px"
+        />
+      </div>
       <v-data-table
         :headers="headers"
         :items="customers"
         :loading="customersStore.loading"
         :items-per-page="25"
+        :search="search"
       >
         <template #item.balance="{ item }">
           {{ formatCurrency(invoicesStore.customerBalance(item.id), currency) }}
         </template>
         <template #item.isActive="{ item }">
-          <v-icon :color="item.isActive ? 'success' : 'grey'">
-            {{ item.isActive ? 'mdi-check-circle' : 'mdi-circle-outline' }}
-          </v-icon>
+          <v-chip
+            :color="item.isActive ? 'success' : 'grey'"
+            size="x-small"
+            variant="tonal"
+          >
+            {{ item.isActive ? 'Active' : 'Inactive' }}
+          </v-chip>
         </template>
         <template #item.actions="{ item }">
-          <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
-          <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
+          <v-btn icon="mdi-pencil" size="x-small" variant="text" @click="openEdit(item)" />
+          <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="confirmDelete(item)" />
         </template>
         <template #no-data>
-          <div class="text-center pa-8 text-grey">No customers yet.</div>
+          <EmptyState
+            icon="mdi-account-group-outline"
+            title="No customers yet"
+            description="Add your first customer to start creating invoices and tracking sales."
+            action-label="New Customer"
+            action-icon="mdi-plus"
+            @action="openCreate"
+          />
         </template>
       </v-data-table>
     </v-card>
@@ -73,6 +96,8 @@ import { useOrganizationStore } from '@/stores/organization'
 import { required } from '@/utils/validation'
 import { formatCurrency } from '@/utils/currency'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import type { Customer } from '@/types/sales'
 
 const customersStore = useCustomersStore()
@@ -81,14 +106,15 @@ const orgStore = useOrganizationStore()
 
 const customers = computed(() => customersStore.customers)
 const currency = computed(() => orgStore.currentOrg?.currency || 'GHS')
+const search = ref('')
 
 const headers = [
   { title: 'Name', key: 'name' },
   { title: 'Email', key: 'email' },
   { title: 'Phone', key: 'phone' },
   { title: 'Balance Due', key: 'balance', align: 'end' as const, width: 160 },
-  { title: 'Active', key: 'isActive', width: 80, align: 'center' as const },
-  { title: '', key: 'actions', sortable: false, width: 120, align: 'end' as const },
+  { title: 'Status', key: 'isActive', width: 100, align: 'center' as const },
+  { title: '', key: 'actions', sortable: false, width: 100, align: 'end' as const },
 ]
 
 const dialog = ref(false)

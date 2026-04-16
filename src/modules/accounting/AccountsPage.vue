@@ -1,24 +1,25 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-6">
-      <h1 class="text-h4 font-weight-bold">Chart of Accounts</h1>
-      <v-spacer />
-      <v-btn
-        v-if="accounts.length === 0"
-        variant="outlined"
-        prepend-icon="mdi-database-import"
-        class="mr-2"
-        :loading="seeding"
-        @click="seedDefaults"
-      >
-        Seed Defaults
-      </v-btn>
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">
-        New Account
-      </v-btn>
-    </div>
+    <PageHeader title="Chart of Accounts">
+      <template #actions>
+        <v-btn
+          v-if="accounts.length === 0"
+          variant="outlined"
+          prepend-icon="mdi-database-import"
+          size="small"
+          class="mr-2"
+          :loading="seeding"
+          @click="seedDefaults"
+        >
+          Seed Defaults
+        </v-btn>
+        <v-btn color="primary" prepend-icon="mdi-plus" size="small" @click="openCreate">
+          New Account
+        </v-btn>
+      </template>
+    </PageHeader>
 
-    <v-card elevation="1">
+    <v-card>
       <v-tabs v-model="activeType" color="primary" grow>
         <v-tab value="all">All</v-tab>
         <v-tab value="asset">Assets</v-tab>
@@ -28,14 +29,27 @@
         <v-tab value="expense">Expenses</v-tab>
       </v-tabs>
 
+      <div class="d-flex align-center flex-wrap ga-2 pa-4 pb-0">
+        <v-spacer />
+        <v-text-field
+          v-model="search"
+          placeholder="Search..."
+          prepend-inner-icon="mdi-magnify"
+          hide-details
+          density="compact"
+          style="max-width: 240px"
+        />
+      </div>
+
       <v-data-table
         :headers="headers"
         :items="filteredAccounts"
         :loading="accountsStore.loading"
         :items-per-page="25"
+        :search="search"
       >
         <template #item.type="{ item }">
-          <v-chip :color="typeColor(item.type)" size="small" variant="tonal">
+          <v-chip :color="typeColor(item.type)" size="x-small" variant="tonal">
             {{ item.type }}
           </v-chip>
         </template>
@@ -43,18 +57,27 @@
           {{ formatCurrency(getBalance(item.id), item.currency) }}
         </template>
         <template #item.isActive="{ item }">
-          <v-icon :color="item.isActive ? 'success' : 'grey'">
-            {{ item.isActive ? 'mdi-check-circle' : 'mdi-circle-outline' }}
-          </v-icon>
+          <v-chip
+            :color="item.isActive ? 'success' : 'grey'"
+            size="x-small"
+            variant="tonal"
+          >
+            {{ item.isActive ? 'Active' : 'Inactive' }}
+          </v-chip>
         </template>
         <template #item.actions="{ item }">
-          <v-btn icon="mdi-pencil" size="small" variant="text" @click="openEdit(item)" />
-          <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
+          <v-btn icon="mdi-pencil" size="x-small" variant="text" @click="openEdit(item)" />
+          <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="confirmDelete(item)" />
         </template>
         <template #no-data>
-          <div class="text-center pa-8 text-grey">
-            No accounts yet. Click "Seed Defaults" or "New Account" to get started.
-          </div>
+          <EmptyState
+            icon="mdi-book-open-page-variant-outline"
+            title="No accounts yet"
+            description="Click 'Seed Defaults' for a standard chart of accounts or create a custom one."
+            action-label="New Account"
+            action-icon="mdi-plus"
+            @action="openCreate"
+          />
         </template>
       </v-data-table>
     </v-card>
@@ -128,6 +151,8 @@ import { useOrganizationStore } from '@/stores/organization'
 import { required } from '@/utils/validation'
 import { formatCurrency } from '@/utils/currency'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import type { Account, AccountType } from '@/types/accounting'
 
 const accountsStore = useAccountsStore()
@@ -136,6 +161,7 @@ const orgStore = useOrganizationStore()
 
 const accounts = computed(() => accountsStore.accounts)
 const activeType = ref<'all' | AccountType>('all')
+const search = ref('')
 
 const headers = [
   { title: 'Code', key: 'code', width: 100 },
@@ -143,7 +169,7 @@ const headers = [
   { title: 'Type', key: 'type', width: 130 },
   { title: 'Currency', key: 'currency', width: 100 },
   { title: 'Balance', key: 'balance', align: 'end' as const, width: 160 },
-  { title: 'Active', key: 'isActive', width: 80, align: 'center' as const },
+  { title: 'Status', key: 'isActive', width: 100, align: 'center' as const },
   { title: '', key: 'actions', sortable: false, width: 100, align: 'end' as const },
 ]
 

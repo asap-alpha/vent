@@ -18,8 +18,11 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/plugins/firebase'
 import { useAuthStore } from './auth'
+import { logger } from '@/utils/logger'
 import type { Organization, OrgMember, Invitation, UserRole } from '@/types/auth'
 import { hasPermission, type Permission } from '@/utils/permissions'
+
+const log = logger('org')
 
 export const useOrganizationStore = defineStore('organization', () => {
   const currentOrg = ref<Organization | null>(null)
@@ -34,6 +37,8 @@ export const useOrganizationStore = defineStore('organization', () => {
 
   const orgId = computed(() => currentOrg.value?.id || '')
   const orgName = computed(() => currentOrg.value?.name || '')
+  const orgStatus = computed(() => currentOrg.value?.status || 'approved')
+  const isOrgApproved = computed(() => orgStatus.value === 'approved')
 
   const myRole = computed<UserRole | null>(() => {
     const authStore = useAuthStore()
@@ -48,9 +53,13 @@ export const useOrganizationStore = defineStore('organization', () => {
 
   async function fetchOrganizations() {
     const authStore = useAuthStore()
-    if (!authStore.profile) return
+    if (!authStore.profile) {
+      log.warn('fetchOrganizations called without profile')
+      return
+    }
 
     const orgIds = authStore.profile.organizations
+    log.info('Fetching organizations', { count: orgIds.length })
     if (orgIds.length === 0) {
       organizations.value = []
       return
@@ -58,22 +67,36 @@ export const useOrganizationStore = defineStore('organization', () => {
 
     const orgs: Organization[] = []
     for (const id of orgIds) {
-      const snap = await getDoc(doc(db, 'organizations', id))
-      if (snap.exists()) {
-        const data = snap.data()
-        orgs.push({
-          id: snap.id,
-          ...data,
-          createdAt: data.createdAt?.toDate?.() || new Date(),
-        } as Organization)
+      try {
+        const snap = await getDoc(doc(db, 'organizations', id))
+        if (snap.exists()) {
+          const data = snap.data()
+          orgs.push({
+            id: snap.id,
+            ...data,
+            status: data.status || 'approved', // legacy orgs without status are treated as approved
+            createdAt: data.createdAt?.toDate?.() || new Date(),
+            reviewedAt: data.reviewedAt?.toDate?.() || undefined,
+          } as Organization)
+        } else {
+          log.warn('Org doc not found', { id })
+        }
+      } catch (e: any) {
+        log.error('Failed to load org', { id, code: e.code, message: e.message })
       }
     }
     organizations.value = orgs
+    log.info('Organizations loaded', { count: orgs.length })
 
+    // Prefer approved orgs for the default selection
+    const approvedOrgs = orgs.filter((o) => o.status === 'approved')
     const defaultId = authStore.profile.defaultOrgId
-    if (defaultId && orgs.find((o) => o.id === defaultId)) {
+    if (defaultId && approvedOrgs.find((o) => o.id === defaultId)) {
       await setCurrentOrg(defaultId)
+    } else if (approvedOrgs.length > 0) {
+      await setCurrentOrg(approvedOrgs[0].id)
     } else if (orgs.length > 0) {
+      // Fall back to any org (even pending) so user sees status
       await setCurrentOrg(orgs[0].id)
     }
   }
@@ -81,9 +104,12 @@ export const useOrganizationStore = defineStore('organization', () => {
   async function setCurrentOrg(id: string) {
     const org = organizations.value.find((o) => o.id === id)
     if (org) {
+      log.info('Switching to org', { id, name: org.name })
       currentOrg.value = org
       subscribeMembers()
       subscribeInvitations()
+    } else {
+      log.warn('setCurrentOrg: org not in list', { id })
     }
   }
 
@@ -91,15 +117,20 @@ export const useOrganizationStore = defineStore('organization', () => {
     const authStore = useAuthStore()
     if (!authStore.user) throw new Error('Not authenticated')
 
+    log.info('Creating organization', { name, currency, fiscalYearStart })
     loading.value = true
     try {
+      // Super admins get auto-approved; regular users go to pending
+      const isSA = authStore.profile?.platformRole === 'super_admin'
       const orgRef = await addDoc(collection(db, 'organizations'), {
         name,
         currency,
         fiscalYearStart,
+        status: isSA ? 'approved' : 'pending',
         createdBy: authStore.user.uid,
         createdAt: serverTimestamp(),
       })
+      log.info('Org doc created', { orgId: orgRef.id, status: isSA ? 'approved' : 'pending' })
 
       // Add creator as owner member (doc id = userId)
       await setDoc(doc(db, 'organizations', orgRef.id, 'members', authStore.user.uid), {
@@ -126,10 +157,15 @@ export const useOrganizationStore = defineStore('organization', () => {
         defaultOrgId: orgRef.id,
       })
 
+      log.info('Member + settings created, updating user profile')
       await authStore.fetchProfile(authStore.user.uid)
       await fetchOrganizations()
 
+      log.info('Organization created successfully', { orgId: orgRef.id })
       return orgRef.id
+    } catch (e: any) {
+      log.error('createOrganization failed', { code: e.code, message: e.message })
+      throw e
     } finally {
       loading.value = false
     }
@@ -138,6 +174,7 @@ export const useOrganizationStore = defineStore('organization', () => {
   function subscribeMembers() {
     if (!currentOrg.value) return
     if (membersUnsub) membersUnsub()
+    log.debug('Subscribing to members', { orgId: currentOrg.value.id })
     membersUnsub = onSnapshot(
       collection(db, 'organizations', currentOrg.value.id, 'members'),
       (snap) => {
@@ -149,7 +186,9 @@ export const useOrganizationStore = defineStore('organization', () => {
             joinedAt: data.joinedAt?.toDate?.() || new Date(),
           } as OrgMember
         })
-      }
+        log.debug('Members snapshot', { count: members.value.length })
+      },
+      (err) => log.error('Members subscription error', { code: err.code, message: err.message })
     )
   }
 
@@ -202,6 +241,7 @@ export const useOrganizationStore = defineStore('organization', () => {
     const authStore = useAuthStore()
     if (!currentOrg.value || !authStore.user) throw new Error('Not authenticated')
     if (!can('users:manage')) throw new Error('Permission denied')
+    log.info('Inviting member', { email, role, orgId: currentOrg.value.id })
 
     // Check if already a member
     if (members.value.find((m) => m.email.toLowerCase() === email.toLowerCase())) {
@@ -331,7 +371,7 @@ export const useOrganizationStore = defineStore('organization', () => {
 
   return {
     currentOrg, organizations, members, invitations, myInvitations,
-    loading, orgId, orgName, myRole, can,
+    loading, orgId, orgName, orgStatus, isOrgApproved, myRole, can,
     fetchOrganizations, setCurrentOrg, createOrganization,
     subscribeMembers, subscribeInvitations, subscribeMyInvitations,
     inviteMember, cancelInvitation,

@@ -1,12 +1,15 @@
 <template>
   <div>
-    <!-- Org Setup Dialog -->
-    <v-dialog v-model="showOrgSetup" persistent max-width="500">
+    <!-- Onboarding: no org and no invitations — force org creation -->
+    <v-dialog v-model="showOrgSetup" persistent max-width="480">
       <v-card class="pa-6">
-        <v-card-title class="text-h5 mb-2">Set Up Your Organization</v-card-title>
-        <v-card-subtitle>Create your first organization to get started.</v-card-subtitle>
-        <v-form ref="orgFormRef" class="mt-4" @submit.prevent="createOrg">
-          <v-text-field v-model="orgForm.name" label="Organization Name" :rules="[required]" class="mb-2" />
+        <div class="text-center mb-4">
+          <v-icon size="48" color="primary">mdi-finance</v-icon>
+          <h2 class="text-h5 font-weight-bold mt-2">Set Up Your Organization</h2>
+          <p class="text-body-2 text-medium-emphasis mt-1">Create your first organization to get started.</p>
+        </div>
+        <v-form ref="orgFormRef" @submit.prevent="createOrg">
+          <v-text-field v-model="orgForm.name" label="Organization Name" :rules="[required]" class="mb-3" />
           <v-select
             v-model="orgForm.currency"
             label="Currency"
@@ -14,11 +17,11 @@
             item-title="label"
             item-value="value"
             :rules="[required]"
-            class="mb-2"
+            class="mb-3"
           />
           <v-select
             v-model="orgForm.fiscalYearStart"
-            label="Fiscal Year Start Month"
+            label="Fiscal Year Start"
             :items="months"
             item-title="label"
             item-value="value"
@@ -31,171 +34,273 @@
       </v-card>
     </v-dialog>
 
-    <!-- Pending Invitations Banner -->
-    <div v-if="myInvitations.length > 0" class="mb-4">
-      <v-alert
-        v-for="inv in myInvitations"
-        :key="inv.id"
-        type="info"
-        variant="tonal"
-        class="mb-2"
-        :icon="false"
-      >
-        <div class="d-flex align-center">
-          <v-icon class="mr-3">mdi-email</v-icon>
-          <div class="flex-grow-1">
-            You've been invited to <strong>{{ inv.orgName }}</strong> as
-            <v-chip :color="roleColor(inv.role)" size="x-small" variant="tonal" class="mx-1">
-              {{ roleLabel(inv.role) }}
-            </v-chip>
-          </div>
-          <v-btn variant="text" color="success" @click="acceptInvitation(inv.id)">Accept</v-btn>
-          <v-btn variant="text" @click="declineInvitation(inv.id)">Decline</v-btn>
+    <!-- Pending Invitations — shown for users with no org or as banners -->
+    <template v-if="myInvitations.length > 0">
+      <!-- Full welcome screen when user has no org yet -->
+      <v-card v-if="!orgStore.currentOrg" class="mb-4 pa-6">
+        <div class="text-center mb-4">
+          <v-icon size="48" color="primary">mdi-email-open-outline</v-icon>
+          <h2 class="text-h5 font-weight-bold mt-2">You have {{ myInvitations.length }} invitation{{ myInvitations.length > 1 ? 's' : '' }}</h2>
+          <p class="text-body-2 text-medium-emphasis mt-1">Accept an invitation to join an organization, or create your own.</p>
         </div>
-      </v-alert>
-    </div>
 
-    <!-- Dashboard Content -->
-    <div v-if="orgStore.currentOrg">
-      <h1 class="text-h4 font-weight-bold mb-6">Dashboard</h1>
+        <v-list lines="two" class="mb-4">
+          <v-list-item
+            v-for="inv in myInvitations"
+            :key="inv.id"
+            class="mb-2"
+          >
+            <template #prepend>
+              <v-avatar color="primary" size="40">
+                <v-icon color="white">mdi-office-building</v-icon>
+              </v-avatar>
+            </template>
+            <v-list-item-title class="font-weight-bold">{{ inv.orgName }}</v-list-item-title>
+            <v-list-item-subtitle>
+              Invited as
+              <v-chip :color="roleColor(inv.role)" size="x-small" class="ml-1">{{ roleLabel(inv.role) }}</v-chip>
+            </v-list-item-subtitle>
+            <template #append>
+              <v-btn size="small" color="success" variant="flat" class="mr-2" @click="acceptInvitation(inv.id)">Accept</v-btn>
+              <v-btn size="small" variant="text" @click="declineInvitation(inv.id)">Decline</v-btn>
+            </template>
+          </v-list-item>
+        </v-list>
 
+        <v-divider class="my-4" />
+        <div class="text-center">
+          <p class="text-body-2 text-medium-emphasis mb-3">Or start fresh with your own organization</p>
+          <v-btn variant="outlined" prepend-icon="mdi-plus" @click="createOrgDialog.open()">
+            Create My Own Organization
+          </v-btn>
+        </div>
+      </v-card>
+
+      <!-- Compact banners when user already has an org -->
+      <template v-else>
+        <v-alert
+          v-for="inv in myInvitations"
+          :key="inv.id"
+          type="info"
+          class="mb-3"
+        >
+          <div class="d-flex align-center flex-wrap ga-2">
+            <span>
+              You've been invited to <strong>{{ inv.orgName }}</strong> as
+              <v-chip :color="roleColor(inv.role)" class="mx-1">{{ roleLabel(inv.role) }}</v-chip>
+            </span>
+            <v-spacer />
+            <v-btn size="small" color="success" variant="flat" @click="acceptInvitation(inv.id)">Accept</v-btn>
+            <v-btn size="small" variant="text" @click="declineInvitation(inv.id)">Decline</v-btn>
+          </div>
+        </v-alert>
+      </template>
+    </template>
+
+    <!-- Dashboard -->
+    <!-- Org pending / rejected / suspended -->
+    <v-card v-if="orgStore.currentOrg && !orgStore.isOrgApproved" class="mb-4 pa-6">
+      <div class="text-center">
+        <v-icon
+          size="56"
+          :color="orgStore.orgStatus === 'pending' ? 'warning' : 'error'"
+          class="mb-4"
+        >
+          {{ orgStore.orgStatus === 'pending' ? 'mdi-clock-outline' : orgStore.orgStatus === 'rejected' ? 'mdi-close-circle-outline' : 'mdi-lock-outline' }}
+        </v-icon>
+        <h2 class="text-h5 font-weight-bold mb-2">
+          {{ orgStore.orgStatus === 'pending' ? 'Organization Pending Approval' : orgStore.orgStatus === 'rejected' ? 'Organization Rejected' : 'Organization Suspended' }}
+        </h2>
+        <p class="text-body-1 text-medium-emphasis mb-2" style="max-width: 480px; margin: 0 auto">
+          <template v-if="orgStore.orgStatus === 'pending'">
+            Your organization <strong>{{ orgStore.orgName }}</strong> has been submitted for review. You'll be able to use it once a super admin approves it.
+          </template>
+          <template v-else-if="orgStore.orgStatus === 'rejected'">
+            Your organization <strong>{{ orgStore.orgName }}</strong> was not approved.
+            <span v-if="orgStore.currentOrg.rejectionReason" class="d-block mt-2">
+              <strong>Reason:</strong> {{ orgStore.currentOrg.rejectionReason }}
+            </span>
+          </template>
+          <template v-else>
+            Your organization <strong>{{ orgStore.orgName }}</strong> has been suspended. Please contact your administrator.
+          </template>
+        </p>
+        <v-chip :color="orgStore.orgStatus === 'pending' ? 'warning' : 'error'" class="mt-2">
+          {{ orgStore.orgStatus.charAt(0).toUpperCase() + orgStore.orgStatus.slice(1) }}
+        </v-chip>
+      </div>
+    </v-card>
+
+    <div v-if="orgStore.currentOrg && orgStore.isOrgApproved">
+      <!-- Quick Actions -->
+      <div class="d-flex align-center flex-wrap ga-2 mb-6">
+        <h1 class="text-h5 font-weight-bold mr-auto">Dashboard</h1>
+        <v-btn color="primary" prepend-icon="mdi-plus" :to="{ name: 'invoice-new' }" size="small">Invoice</v-btn>
+        <v-btn variant="outlined" prepend-icon="mdi-plus" :to="{ name: 'bill-new' }" size="small">Bill</v-btn>
+        <v-btn variant="outlined" prepend-icon="mdi-plus" :to="{ name: 'journal-entry-new' }" size="small">Journal Entry</v-btn>
+      </div>
+
+      <!-- KPI Cards -->
       <v-row>
-        <v-col cols="12" md="3">
-          <v-card class="pa-4" elevation="1">
-            <div class="text-body-2 text-grey">Revenue (MTD)</div>
-            <div class="text-h5 font-weight-bold mt-1 text-success">
-              {{ formatCurrency(monthRevenue, currency) }}
-            </div>
-            <div class="text-caption text-grey">{{ monthLabel }}</div>
+        <v-col cols="6" md="3">
+          <v-card class="kpi-card kpi-green">
+            <v-card-text class="pa-4">
+              <div class="text-caption text-medium-emphasis font-weight-medium text-uppercase">Revenue (MTD)</div>
+              <div class="text-h5 font-weight-bold mt-1">{{ formatCurrency(monthRevenue, currency) }}</div>
+              <div class="text-caption text-medium-emphasis">{{ monthLabel }}</div>
+            </v-card-text>
           </v-card>
         </v-col>
-        <v-col cols="12" md="3">
-          <v-card class="pa-4" elevation="1">
-            <div class="text-body-2 text-grey">Expenses (MTD)</div>
-            <div class="text-h5 font-weight-bold mt-1 text-error">
-              {{ formatCurrency(monthExpenses, currency) }}
-            </div>
-            <div class="text-caption text-grey">{{ monthLabel }}</div>
+        <v-col cols="6" md="3">
+          <v-card class="kpi-card kpi-red">
+            <v-card-text class="pa-4">
+              <div class="text-caption text-medium-emphasis font-weight-medium text-uppercase">Expenses (MTD)</div>
+              <div class="text-h5 font-weight-bold mt-1">{{ formatCurrency(monthExpenses, currency) }}</div>
+              <div class="text-caption text-medium-emphasis">{{ monthLabel }}</div>
+            </v-card-text>
           </v-card>
         </v-col>
-        <v-col cols="12" md="3">
-          <v-card class="pa-4" elevation="1">
-            <div class="text-body-2 text-grey">Receivables</div>
-            <div class="text-h5 font-weight-bold mt-1">{{ formatCurrency(totalReceivables, currency) }}</div>
-            <div class="text-caption" :class="overdueReceivables > 0 ? 'text-error' : 'text-grey'">
-              {{ formatCurrency(overdueReceivables, currency) }} overdue
-            </div>
+        <v-col cols="6" md="3">
+          <v-card class="kpi-card kpi-blue">
+            <v-card-text class="pa-4">
+              <div class="text-caption text-medium-emphasis font-weight-medium text-uppercase">Receivables</div>
+              <div class="text-h5 font-weight-bold mt-1">{{ formatCurrency(totalReceivables, currency) }}</div>
+              <div class="text-caption" :class="overdueReceivables > 0 ? 'text-error' : 'text-medium-emphasis'">
+                {{ formatCurrency(overdueReceivables, currency) }} overdue
+              </div>
+            </v-card-text>
           </v-card>
         </v-col>
-        <v-col cols="12" md="3">
-          <v-card class="pa-4" elevation="1">
-            <div class="text-body-2 text-grey">Payables</div>
-            <div class="text-h5 font-weight-bold mt-1">{{ formatCurrency(totalPayables, currency) }}</div>
-            <div class="text-caption" :class="overduePayables > 0 ? 'text-error' : 'text-grey'">
-              {{ formatCurrency(overduePayables, currency) }} overdue
-            </div>
-          </v-card>
-        </v-col>
-      </v-row>
-
-      <v-row class="mt-2">
-        <v-col cols="12" md="4">
-          <v-card class="pa-4" elevation="1">
-            <div class="text-body-2 text-grey">Cash Position</div>
-            <div class="text-h5 font-weight-bold mt-1">{{ formatCurrency(cashPosition, currency) }}</div>
-            <div class="text-caption text-grey">Across {{ bankingStore.accounts.length }} bank accounts</div>
-          </v-card>
-        </v-col>
-        <v-col cols="12" md="4">
-          <v-card class="pa-4" elevation="1">
-            <div class="text-body-2 text-grey">Net Income (MTD)</div>
-            <div
-              class="text-h5 font-weight-bold mt-1"
-              :class="netIncome >= 0 ? 'text-success' : 'text-error'"
-            >
-              {{ formatCurrency(Math.abs(netIncome), currency) }}
-            </div>
-            <div class="text-caption text-grey">{{ netIncome >= 0 ? 'Profit' : 'Loss' }} this month</div>
-          </v-card>
-        </v-col>
-        <v-col cols="12" md="4">
-          <v-card class="pa-4" elevation="1">
-            <div class="text-body-2 text-grey">Customers / Suppliers</div>
-            <div class="text-h5 font-weight-bold mt-1">
-              {{ customersStore.customers.length }} / {{ suppliersStore.suppliers.length }}
-            </div>
-            <div class="text-caption text-grey">Active records</div>
+        <v-col cols="6" md="3">
+          <v-card class="kpi-card kpi-orange">
+            <v-card-text class="pa-4">
+              <div class="text-caption text-medium-emphasis font-weight-medium text-uppercase">Payables</div>
+              <div class="text-h5 font-weight-bold mt-1">{{ formatCurrency(totalPayables, currency) }}</div>
+              <div class="text-caption" :class="overduePayables > 0 ? 'text-error' : 'text-medium-emphasis'">
+                {{ formatCurrency(overduePayables, currency) }} overdue
+              </div>
+            </v-card-text>
           </v-card>
         </v-col>
       </v-row>
 
-      <v-row class="mt-2">
+      <!-- Cash + Net Income -->
+      <v-row class="mt-1">
+        <v-col cols="12" md="4">
+          <v-card>
+            <v-card-text class="pa-4">
+              <div class="text-caption text-medium-emphasis font-weight-medium text-uppercase">Cash Position</div>
+              <div class="text-h5 font-weight-bold mt-1">{{ formatCurrency(cashPosition, currency) }}</div>
+              <div class="text-caption text-medium-emphasis">{{ bankingStore.accounts.length }} account(s)</div>
+            </v-card-text>
+          </v-card>
+        </v-col>
+        <v-col cols="12" md="4">
+          <v-card>
+            <v-card-text class="pa-4">
+              <div class="text-caption text-medium-emphasis font-weight-medium text-uppercase">Net Income (MTD)</div>
+              <div class="text-h5 font-weight-bold mt-1" :class="netIncome >= 0 ? 'text-success' : 'text-error'">
+                {{ formatCurrency(Math.abs(netIncome), currency) }}
+              </div>
+              <div class="text-caption text-medium-emphasis">{{ netIncome >= 0 ? 'Profit' : 'Loss' }}</div>
+            </v-card-text>
+          </v-card>
+        </v-col>
+        <v-col cols="12" md="4">
+          <v-card>
+            <v-card-text class="pa-4">
+              <div class="text-caption text-medium-emphasis font-weight-medium text-uppercase">Records</div>
+              <div class="text-h5 font-weight-bold mt-1">
+                {{ customersStore.customers.length + suppliersStore.suppliers.length }}
+              </div>
+              <div class="text-caption text-medium-emphasis">
+                {{ customersStore.customers.length }} customers, {{ suppliersStore.suppliers.length }} suppliers
+              </div>
+            </v-card-text>
+          </v-card>
+        </v-col>
+      </v-row>
+
+      <!-- Recent Activity -->
+      <v-row class="mt-1">
         <v-col cols="12" md="6">
-          <v-card elevation="1">
-            <v-card-title class="d-flex align-center">
+          <v-card>
+            <v-card-title class="d-flex align-center text-subtitle-2 font-weight-bold pa-4 pb-0">
               Recent Invoices
               <v-spacer />
-              <v-btn variant="text" size="small" :to="{ name: 'invoices' }">View All</v-btn>
+              <v-btn variant="text" size="x-small" :to="{ name: 'invoices' }" append-icon="mdi-chevron-right">
+                View all
+              </v-btn>
             </v-card-title>
-            <v-list v-if="recentInvoices.length > 0" lines="two">
+            <v-list v-if="recentInvoices.length > 0" lines="two" density="compact">
               <v-list-item
                 v-for="inv in recentInvoices"
                 :key="inv.id"
                 :to="{ name: 'invoice-edit', params: { id: inv.id } }"
               >
-                <v-list-item-title>
-                  {{ inv.number }} — {{ inv.customerName }}
+                <template #prepend>
+                  <div class="status-dot mr-3" :class="`dot-${inv.status}`" />
+                </template>
+                <v-list-item-title class="text-body-2">
+                  <strong>{{ inv.number }}</strong> — {{ inv.customerName }}
                 </v-list-item-title>
-                <v-list-item-subtitle>
-                  {{ formatDate(inv.date) }} · Due {{ formatDate(inv.dueDate) }}
+                <v-list-item-subtitle class="text-caption">
+                  {{ formatDate(inv.date) }}
                 </v-list-item-subtitle>
                 <template #append>
-                  <div class="text-end">
-                    <div class="font-weight-bold">{{ formatCurrency(inv.total, currency) }}</div>
-                    <v-chip :color="invoiceStatusColor(inv.status)" size="x-small" variant="tonal">
-                      {{ inv.status.replace('_', ' ') }}
-                    </v-chip>
-                  </div>
+                  <span class="text-body-2 font-weight-medium">{{ formatCurrency(inv.total, currency) }}</span>
                 </template>
               </v-list-item>
             </v-list>
-            <v-card-text v-else class="text-center text-grey pa-8">
-              No invoices yet. <router-link :to="{ name: 'invoice-new' }">Create one</router-link>
-            </v-card-text>
+            <EmptyState
+              v-else
+              icon="mdi-receipt-text-outline"
+              title="No invoices yet"
+              description="Create your first invoice to start tracking revenue."
+              action-label="Create Invoice"
+              action-icon="mdi-plus"
+              :action-to="{ name: 'invoice-new' }"
+            />
           </v-card>
         </v-col>
         <v-col cols="12" md="6">
-          <v-card elevation="1">
-            <v-card-title class="d-flex align-center">
+          <v-card>
+            <v-card-title class="d-flex align-center text-subtitle-2 font-weight-bold pa-4 pb-0">
               Recent Bills
               <v-spacer />
-              <v-btn variant="text" size="small" :to="{ name: 'bills' }">View All</v-btn>
+              <v-btn variant="text" size="x-small" :to="{ name: 'bills' }" append-icon="mdi-chevron-right">
+                View all
+              </v-btn>
             </v-card-title>
-            <v-list v-if="recentBills.length > 0" lines="two">
+            <v-list v-if="recentBills.length > 0" lines="two" density="compact">
               <v-list-item
                 v-for="bill in recentBills"
                 :key="bill.id"
                 :to="{ name: 'bill-edit', params: { id: bill.id } }"
               >
-                <v-list-item-title>
-                  {{ bill.number }} — {{ bill.supplierName }}
+                <template #prepend>
+                  <div class="status-dot mr-3" :class="`dot-${bill.status}`" />
+                </template>
+                <v-list-item-title class="text-body-2">
+                  <strong>{{ bill.number }}</strong> — {{ bill.supplierName }}
                 </v-list-item-title>
-                <v-list-item-subtitle>
-                  {{ formatDate(bill.date) }} · Due {{ formatDate(bill.dueDate) }}
+                <v-list-item-subtitle class="text-caption">
+                  {{ formatDate(bill.date) }}
                 </v-list-item-subtitle>
                 <template #append>
-                  <div class="text-end">
-                    <div class="font-weight-bold">{{ formatCurrency(bill.total, currency) }}</div>
-                    <v-chip :color="billStatusColor(bill.status)" size="x-small" variant="tonal">
-                      {{ bill.status.replace('_', ' ') }}
-                    </v-chip>
-                  </div>
+                  <span class="text-body-2 font-weight-medium">{{ formatCurrency(bill.total, currency) }}</span>
                 </template>
               </v-list-item>
             </v-list>
-            <v-card-text v-else class="text-center text-grey pa-8">
-              No bills yet. <router-link :to="{ name: 'bill-new' }">Create one</router-link>
-            </v-card-text>
+            <EmptyState
+              v-else
+              icon="mdi-file-document-outline"
+              title="No bills yet"
+              description="Record bills from your suppliers here."
+              action-label="Create Bill"
+              action-icon="mdi-plus"
+              :action-to="{ name: 'bill-new' }"
+            />
           </v-card>
         </v-col>
       </v-row>
@@ -204,7 +309,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useOrganizationStore } from '@/stores/organization'
 import { useTransactionsStore } from '@/stores/transactions'
@@ -218,8 +323,8 @@ import { formatCurrency } from '@/utils/currency'
 import { formatDate } from '@/utils/date'
 import { roleLabel, roleColor } from '@/utils/permissions'
 import { startOfMonth, format } from 'date-fns'
-import type { InvoiceStatus } from '@/types/sales'
-import type { BillStatus } from '@/types/purchases'
+import EmptyState from '@/components/common/EmptyState.vue'
+import { useCreateOrg } from '@/composables/useCreateOrg'
 
 const authStore = useAuthStore()
 const orgStore = useOrganizationStore()
@@ -230,82 +335,46 @@ const customersStore = useCustomersStore()
 const suppliersStore = useSuppliersStore()
 const bankingStore = useBankingStore()
 
+// Only force the org setup dialog when user has NO orgs AND NO pending invitations
 const showOrgSetup = computed(() =>
-  !!authStore.profile && authStore.profile.organizations.length === 0
+  !!authStore.profile &&
+  authStore.profile.organizations.length === 0 &&
+  myInvitations.value.length === 0
 )
-
 const myInvitations = computed(() => orgStore.myInvitations)
-
+const createOrgDialog = useCreateOrg()
 const currency = computed(() => orgStore.currentOrg?.currency || 'GHS')
 const monthLabel = computed(() => format(new Date(), 'MMMM yyyy'))
-
-// MTD revenue and expenses
 const monthStart = computed(() => startOfMonth(new Date()))
 
-const monthRevenue = computed(() =>
-  transactionsStore.sumByType('revenue', monthStart.value, new Date())
-)
-const monthExpenses = computed(() =>
-  transactionsStore.sumByType('expense', monthStart.value, new Date())
-)
+const monthRevenue = computed(() => transactionsStore.sumByType('revenue', monthStart.value, new Date()))
+const monthExpenses = computed(() => transactionsStore.sumByType('expense', monthStart.value, new Date()))
 const netIncome = computed(() => monthRevenue.value - monthExpenses.value)
 
-// Receivables / Payables
 const totalReceivables = computed(() =>
-  invoicesStore.invoices
-    .filter((i) => i.status !== 'paid' && i.status !== 'void' && i.status !== 'draft')
-    .reduce((s, i) => s + i.amountDue, 0)
+  invoicesStore.invoices.filter((i) => i.status !== 'paid' && i.status !== 'void' && i.status !== 'draft').reduce((s, i) => s + i.amountDue, 0)
 )
 const overdueReceivables = computed(() => {
   const now = new Date()
-  return invoicesStore.invoices
-    .filter((i) => i.status !== 'paid' && i.status !== 'void' && i.status !== 'draft' && i.dueDate < now)
-    .reduce((s, i) => s + i.amountDue, 0)
+  return invoicesStore.invoices.filter((i) => i.status !== 'paid' && i.status !== 'void' && i.status !== 'draft' && i.dueDate < now).reduce((s, i) => s + i.amountDue, 0)
 })
-
 const totalPayables = computed(() =>
-  billsStore.bills
-    .filter((b) => b.status !== 'paid' && b.status !== 'void' && b.status !== 'draft')
-    .reduce((s, b) => s + b.amountDue, 0)
+  billsStore.bills.filter((b) => b.status !== 'paid' && b.status !== 'void' && b.status !== 'draft').reduce((s, b) => s + b.amountDue, 0)
 )
 const overduePayables = computed(() => {
   const now = new Date()
-  return billsStore.bills
-    .filter((b) => b.status !== 'paid' && b.status !== 'void' && b.status !== 'draft' && b.dueDate < now)
-    .reduce((s, b) => s + b.amountDue, 0)
+  return billsStore.bills.filter((b) => b.status !== 'paid' && b.status !== 'void' && b.status !== 'draft' && b.dueDate < now).reduce((s, b) => s + b.amountDue, 0)
 })
-
-// Cash position
 const cashPosition = computed(() =>
-  bankingStore.accounts.reduce(
-    (sum, acc) => sum + bankingStore.currentBalance(acc.id),
-    0
-  )
+  bankingStore.accounts.reduce((sum, acc) => sum + bankingStore.currentBalance(acc.id), 0)
 )
-
-// Recent records
 const recentInvoices = computed(() => invoicesStore.invoices.slice(0, 5))
 const recentBills = computed(() => billsStore.bills.slice(0, 5))
-
-function invoiceStatusColor(status: InvoiceStatus): string {
-  return {
-    draft: 'grey', sent: 'blue', paid: 'success',
-    partially_paid: 'orange', overdue: 'error', void: 'grey',
-  }[status]
-}
-
-function billStatusColor(status: BillStatus): string {
-  return {
-    draft: 'grey', received: 'blue', paid: 'success',
-    partially_paid: 'orange', overdue: 'error', void: 'grey',
-  }[status]
-}
 
 // Org setup
 const orgFormRef = ref()
 const creatingOrg = ref(false)
 const orgForm = ref({ name: '', currency: 'GHS', fiscalYearStart: 1 })
-
 const currencies = [
   { label: 'Ghana Cedi (GHS)', value: 'GHS' },
   { label: 'US Dollar (USD)', value: 'USD' },
@@ -334,36 +403,34 @@ async function createOrg() {
 }
 
 async function acceptInvitation(id: string) {
-  try {
-    await orgStore.acceptInvitation(id)
-  } catch (e: any) {
-    alert(e.message)
-  }
+  try { await orgStore.acceptInvitation(id) } catch (e: any) { alert(e.message) }
 }
-
 async function declineInvitation(id: string) {
   await orgStore.declineInvitation(id)
 }
 
-function subscribeAll() {
-  if (!orgStore.orgId) return
-  transactionsStore.subscribe()
-  invoicesStore.subscribe()
-  billsStore.subscribe()
-  customersStore.subscribe()
-  suppliersStore.subscribe()
-  bankingStore.subscribe()
-}
-
-onMounted(async () => {
-  // Watch for incoming invitations
-  orgStore.subscribeMyInvitations()
-
-  if (authStore.profile && authStore.profile.organizations.length > 0) {
-    await orgStore.fetchOrganizations()
-  }
-  subscribeAll()
-})
-
-watch(() => orgStore.orgId, () => subscribeAll())
+onMounted(() => {})
 </script>
+
+<style scoped>
+.kpi-card {
+  border-left: 4px solid transparent !important;
+}
+.kpi-green { border-left-color: #16A34A !important; }
+.kpi-red { border-left-color: #DC2626 !important; }
+.kpi-blue { border-left-color: #2563EB !important; }
+.kpi-orange { border-left-color: #D97706 !important; }
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot-draft { background: #94A3B8; }
+.dot-sent, .dot-received { background: #2563EB; }
+.dot-paid { background: #16A34A; }
+.dot-partially_paid { background: #D97706; }
+.dot-overdue { background: #DC2626; }
+.dot-void { background: #CBD5E1; }
+</style>

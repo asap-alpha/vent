@@ -14,7 +14,10 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/plugins/firebase'
 import { useOrganizationStore } from './organization'
+import { logger } from '@/utils/logger'
 import type { Account, AccountType } from '@/types/accounting'
+
+const log = logger('accounts')
 
 export const useAccountsStore = defineStore('accounts', () => {
   const accounts = ref<Account[]>([])
@@ -42,8 +45,12 @@ export const useAccountsStore = defineStore('accounts', () => {
 
   function subscribe() {
     const orgStore = useOrganizationStore()
-    if (!orgStore.orgId) return
+    if (!orgStore.orgId) {
+      log.warn('subscribe() skipped — no org')
+      return
+    }
     unsubscribe()
+    log.info('Subscribing to accounts', { orgId: orgStore.orgId })
     loading.value = true
 
     const q = query(
@@ -62,9 +69,11 @@ export const useAccountsStore = defineStore('accounts', () => {
             updatedAt: data.updatedAt?.toDate() || new Date(),
           } as Account
         })
+        log.debug('Accounts snapshot', { count: accounts.value.length })
         loading.value = false
       },
       (err) => {
+        log.error('Accounts subscription error', { code: err.code, message: err.message })
         error.value = err.message
         loading.value = false
       }
@@ -82,12 +91,19 @@ export const useAccountsStore = defineStore('accounts', () => {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
 
-    await addDoc(collection(db, 'organizations', orgStore.orgId, 'accounts'), {
-      ...data,
-      balance: 0,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
+    log.info('Creating account', { code: data.code, name: data.name, type: data.type })
+    try {
+      const ref = await addDoc(collection(db, 'organizations', orgStore.orgId, 'accounts'), {
+        ...data,
+        balance: 0,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+      log.info('Account created', { id: ref.id })
+    } catch (e: any) {
+      log.error('createAccount failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function updateAccount(id: string, data: Partial<Account>) {
