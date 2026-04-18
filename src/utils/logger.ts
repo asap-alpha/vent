@@ -46,6 +46,81 @@ function consoleMethod(level: LogLevel): 'log' | 'info' | 'warn' | 'error' {
   return level
 }
 
+// ----- Remote forwarding to /api/log -----
+// Buffers warn+ entries and flushes in batches every 2s, or immediately on error.
+const FORWARD_LEVEL: LogLevel = 'warn'
+const FLUSH_INTERVAL_MS = 2000
+const remoteQueue: any[] = []
+let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+async function flushRemote() {
+  if (remoteQueue.length === 0 || typeof fetch === 'undefined') return
+  const batch = remoteQueue.splice(0, remoteQueue.length)
+  try {
+    await fetch('/api/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(batch),
+      keepalive: true, // survive page unload
+    })
+  } catch {
+    // Forwarding failure is silent — don't recurse with another error log
+  }
+}
+
+function scheduleFlush(immediate = false) {
+  if (immediate) {
+    if (flushTimer) {
+      clearTimeout(flushTimer)
+      flushTimer = null
+    }
+    flushRemote()
+    return
+  }
+  if (flushTimer) return
+  flushTimer = setTimeout(() => {
+    flushTimer = null
+    flushRemote()
+  }, FLUSH_INTERVAL_MS)
+}
+
+function getCurrentUid(): string | undefined {
+  // Best-effort: read from window without importing the auth store (avoids circular deps)
+  try {
+    return (window as any)?.__VENT_UID__
+  } catch {
+    return undefined
+  }
+}
+
+function forwardToServer(entry: LogEntry) {
+  if (LEVEL_ORDER[entry.level] < LEVEL_ORDER[FORWARD_LEVEL]) return
+
+  remoteQueue.push({
+    level: entry.level,
+    scope: entry.scope,
+    message: entry.message,
+    data: entry.data,
+    timestamp: entry.timestamp.toISOString(),
+    uid: getCurrentUid(),
+    url: typeof window !== 'undefined' ? window.location.pathname : undefined,
+    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
+  })
+
+  // Flush errors immediately, batch warns
+  scheduleFlush(entry.level === 'error')
+}
+
+// Flush pending logs when the user leaves the page
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    flushRemote()
+  })
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushRemote()
+  })
+}
+
 function emit(level: LogLevel, scope: string, message: string, data?: any) {
   if (LEVEL_ORDER[level] < LEVEL_ORDER[minLevel()]) return
 
@@ -76,6 +151,9 @@ function emit(level: LogLevel, scope: string, message: string, data?: any) {
     'color: inherit',
     data !== undefined ? data : ''
   )
+
+  // Forward warn/error entries to Vercel
+  forwardToServer(entry)
 }
 
 export interface ScopedLogger {
