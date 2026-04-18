@@ -4,7 +4,7 @@
     <header class="landing-nav">
       <div class="landing-container d-flex align-center" style="height: 64px">
         <div class="d-flex align-center">
-          <v-icon color="primary" size="28" class="mr-2">mdi-finance</v-icon>
+          <img src="/favicon.svg" alt="Vent" width="32" height="32" class="mr-2" />
           <span class="text-h6 font-weight-bold">Vent</span>
         </div>
         <v-spacer />
@@ -133,7 +133,7 @@
     <footer class="landing-footer">
       <div class="landing-container d-flex align-center flex-wrap" style="min-height: 64px">
         <div class="d-flex align-center">
-          <v-icon color="primary" size="20" class="mr-2">mdi-finance</v-icon>
+          <img src="/favicon.svg" alt="Vent" width="20" height="20" class="mr-2" />
           <span class="text-body-2 font-weight-medium">Vent Accounting</span>
         </div>
         <v-spacer />

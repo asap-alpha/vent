@@ -28,7 +28,10 @@ function wrap(body: string): string {
 </head>
 <body>
   <div class="container">
-    <div class="header"><h1>Vent</h1></div>
+    <div class="header" style="display: flex; align-items: center;">
+      <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM2MEE1RkEiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMzQjgyRjYiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxNCIgZmlsbD0idXJsKCNnKSIvPjxwYXRoIGQ9Ik0xNSAyMCBMMjUgNDQgTDMyIDI4IEwzOSA0NCBMNDkgMjAiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBmaWxsPSJub25lIi8+PGNpcmNsZSBjeD0iMzIiIGN5PSIyOCIgcj0iMi41IiBmaWxsPSJ3aGl0ZSIvPjwvc3ZnPg==" width="36" height="36" alt="Vent" style="margin-right: 12px; vertical-align: middle; border-radius: 8px;" />
+      <h1 style="display: inline-block; vertical-align: middle; margin: 0;">Vent</h1>
+    </div>
     <div class="body">${body}</div>
     <div class="footer">
       <p>Sent from Vent Accounting</p>

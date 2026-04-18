@@ -10,7 +10,7 @@
     <!-- Logo header -->
     <div class="sidebar-header">
       <div class="d-flex align-center pa-4">
-        <v-icon color="primary" size="28" class="mr-3">mdi-finance</v-icon>
+        <img src="/favicon.svg" alt="Vent" width="32" height="32" class="mr-3" />
         <div>
           <div class="text-subtitle-1 font-weight-bold">Vent</div>
           <div class="text-caption text-medium-emphasis" style="line-height: 1.2">{{ orgName }}</div>

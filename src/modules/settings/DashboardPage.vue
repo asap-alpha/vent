@@ -4,7 +4,7 @@
     <v-dialog v-model="showOrgSetup" persistent max-width="480">
       <v-card class="pa-6">
         <div class="text-center mb-4">
-          <v-icon size="48" color="primary">mdi-finance</v-icon>
+          <img src="/favicon.svg" alt="Vent" width="48" height="48" />
           <h2 class="text-h5 font-weight-bold mt-2">Set Up Your Organization</h2>
           <p class="text-body-2 text-medium-emphasis mt-1">Create your first organization to get started.</p>
         </div>
