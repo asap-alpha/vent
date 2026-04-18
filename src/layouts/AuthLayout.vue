@@ -5,7 +5,7 @@
       <div class="auth-brand d-none d-md-flex">
         <div class="auth-brand-content">
           <div class="auth-logo mb-6">
-            <v-icon size="48" color="white">mdi-finance</v-icon>
+            <img src="/favicon.svg" alt="Vent" width="48" height="48" style="filter: brightness(0) invert(1)" />
           </div>
           <h1 class="text-h3 font-weight-bold text-white mb-3">Vent</h1>
           <p class="text-h6 font-weight-light text-white" style="opacity: 0.85">
@@ -25,7 +25,7 @@
         <div class="auth-form-inner">
           <!-- Mobile logo -->
           <div class="d-md-none text-center mb-8">
-            <v-icon size="40" color="primary">mdi-finance</v-icon>
+            <img src="/favicon.svg" alt="Vent" width="40" height="40" />
             <h1 class="text-h5 font-weight-bold mt-2">Vent</h1>
             <p class="text-body-2 text-medium-emphasis">Professional accounting made simple</p>
           </div>
