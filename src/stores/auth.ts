@@ -35,9 +35,12 @@ export const useAuthStore = defineStore('auth', () => {
         user.value = firebaseUser
         if (firebaseUser) {
           log.info('Auth state: signed in', { uid: firebaseUser.uid, email: firebaseUser.email })
+          // Expose uid for log forwarder to include in remote entries
+          ;(window as any).__VENT_UID__ = firebaseUser.uid
           await fetchProfile(firebaseUser.uid)
         } else {
           log.info('Auth state: signed out')
+          ;(window as any).__VENT_UID__ = undefined
           unsubscribeProfile()
           profile.value = null
         }
