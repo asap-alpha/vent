@@ -238,7 +238,7 @@ export const useInvoicesStore = defineStore('invoices', () => {
     log.info('recordReceipt', { invoiceId: data.invoiceId, amount: data.amount, method: data.method })
     try {
       // Create receipt
-      await addDoc(collection(db, 'organizations', orgStore.orgId, 'receipts'), {
+      const receiptRef = await addDoc(collection(db, 'organizations', orgStore.orgId, 'receipts'), {
         customerId: data.customerId,
         invoiceId: data.invoiceId,
         date: Timestamp.fromDate(data.date),
@@ -266,6 +266,14 @@ export const useInvoicesStore = defineStore('invoices', () => {
           updatedAt: serverTimestamp(),
         }
       )
+
+      // Auto-send payment receipt email (fire-and-forget)
+      const orgIdForEmail = orgStore.orgId
+      import('@/composables/useEmail').then(({ sendPaymentReceiptByEmail }) => {
+        sendPaymentReceiptByEmail(orgIdForEmail, receiptRef.id).catch((err) => {
+          log.error('Failed to send payment receipt email', { receiptId: receiptRef.id, message: err.message })
+        })
+      })
     } catch (e: any) {
       log.error('recordReceipt failed', { code: e.code, message: e.message })
       throw e

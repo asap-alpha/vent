@@ -65,6 +65,17 @@ export const useOrganizationStore = defineStore('organization', () => {
       return
     }
 
+    // Robust date coercion — handles Firestore Timestamp, Date, string, and missing values
+    function toDate(v: any): Date {
+      if (v instanceof Date) return v
+      if (v && typeof v.toDate === 'function') return v.toDate()
+      if (typeof v === 'string' || typeof v === 'number') {
+        const d = new Date(v)
+        return isNaN(d.getTime()) ? new Date(0) : d
+      }
+      return new Date(0) // epoch fallback so missing dates sort oldest
+    }
+
     const orgs: Organization[] = []
     for (const id of orgIds) {
       try {
@@ -75,8 +86,8 @@ export const useOrganizationStore = defineStore('organization', () => {
             id: snap.id,
             ...data,
             status: data.status || 'approved', // legacy orgs without status are treated as approved
-            createdAt: data.createdAt?.toDate?.() || new Date(),
-            reviewedAt: data.reviewedAt?.toDate?.() || undefined,
+            createdAt: toDate(data.createdAt),
+            reviewedAt: data.reviewedAt ? toDate(data.reviewedAt) : undefined,
           } as Organization)
         } else {
           log.warn('Org doc not found', { id })
@@ -85,23 +96,37 @@ export const useOrganizationStore = defineStore('organization', () => {
         log.error('Failed to load org', { id, code: e.code, message: e.message })
       }
     }
+    // Sort by createdAt ascending — oldest first
+    orgs.sort((a, b) => {
+      const at = a.createdAt instanceof Date ? a.createdAt.getTime() : 0
+      const bt = b.createdAt instanceof Date ? b.createdAt.getTime() : 0
+      return at - bt
+    })
     organizations.value = orgs
-    log.info('Organizations loaded', { count: orgs.length })
+    log.info('Organizations loaded (sorted by createdAt asc)', {
+      count: orgs.length,
+      order: orgs.map((o) => ({
+        name: o.name,
+        createdAt: o.createdAt instanceof Date ? o.createdAt.toISOString() : 'INVALID',
+      })),
+    })
 
-    // Prefer approved orgs for the default selection
+    // Always default to the first (oldest) approved org
+    // Fall back to the first org of any status so user sees pending/rejected state
     const approvedOrgs = orgs.filter((o) => o.status === 'approved')
-    const defaultId = authStore.profile.defaultOrgId
-    if (defaultId && approvedOrgs.find((o) => o.id === defaultId)) {
-      await setCurrentOrg(defaultId)
-    } else if (approvedOrgs.length > 0) {
+    if (approvedOrgs.length > 0) {
       await setCurrentOrg(approvedOrgs[0].id)
     } else if (orgs.length > 0) {
-      // Fall back to any org (even pending) so user sees status
       await setCurrentOrg(orgs[0].id)
     }
   }
 
   async function setCurrentOrg(id: string) {
+    // Guard: skip if already on this org (prevents duplicate re-subscribes)
+    if (currentOrg.value?.id === id) {
+      log.debug('setCurrentOrg: already on this org, skipping', { id })
+      return
+    }
     const org = organizations.value.find((o) => o.id === id)
     if (org) {
       log.info('Switching to org', { id, name: org.name })
@@ -120,17 +145,16 @@ export const useOrganizationStore = defineStore('organization', () => {
     log.info('Creating organization', { name, currency, fiscalYearStart })
     loading.value = true
     try {
-      // Super admins get auto-approved; regular users go to pending
-      const isSA = authStore.profile?.platformRole === 'super_admin'
+      // All new orgs start as 'pending' — super admin reviews them from /admin
       const orgRef = await addDoc(collection(db, 'organizations'), {
         name,
         currency,
         fiscalYearStart,
-        status: isSA ? 'approved' : 'pending',
+        status: 'pending',
         createdBy: authStore.user.uid,
         createdAt: serverTimestamp(),
       })
-      log.info('Org doc created', { orgId: orgRef.id, status: isSA ? 'approved' : 'pending' })
+      log.info('Org doc created (pending review)', { orgId: orgRef.id })
 
       // Add creator as owner member (doc id = userId)
       await setDoc(doc(db, 'organizations', orgRef.id, 'members', authStore.user.uid), {
@@ -151,11 +175,15 @@ export const useOrganizationStore = defineStore('organization', () => {
         nextInvoiceNum: 1,
       })
 
-      // Update user profile
-      await updateDoc(doc(db, 'users', authStore.user.uid), {
+      // Update user profile — only set defaultOrgId if user doesn't already have one
+      // (preserves the user's primary org when they create additional ones)
+      const userUpdate: any = {
         organizations: arrayUnion(orgRef.id),
-        defaultOrgId: orgRef.id,
-      })
+      }
+      if (!authStore.profile?.defaultOrgId) {
+        userUpdate.defaultOrgId = orgRef.id
+      }
+      await updateDoc(doc(db, 'users', authStore.user.uid), userUpdate)
 
       log.info('Member + settings created, updating user profile')
       await authStore.fetchProfile(authStore.user.uid)
@@ -252,7 +280,7 @@ export const useOrganizationStore = defineStore('organization', () => {
       throw new Error('An invitation is already pending for this email')
     }
 
-    await addDoc(collection(db, 'invitations'), {
+    const invRef = await addDoc(collection(db, 'invitations'), {
       orgId: currentOrg.value.id,
       orgName: currentOrg.value.name,
       email: email.toLowerCase().trim(),
@@ -260,6 +288,14 @@ export const useOrganizationStore = defineStore('organization', () => {
       invitedBy: authStore.user.uid,
       status: 'pending',
       createdAt: serverTimestamp(),
+    })
+
+    // Auto-send invitation email (fire-and-forget — don't block the UI)
+    // Import dynamically to avoid circular deps
+    import('@/composables/useEmail').then(({ sendInvitationByEmail }) => {
+      sendInvitationByEmail(invRef.id).catch((err) => {
+        log.error('Failed to send invitation email', { invitationId: invRef.id, message: err.message })
+      })
     })
   }
 

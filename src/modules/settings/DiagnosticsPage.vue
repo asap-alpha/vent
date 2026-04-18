@@ -28,6 +28,20 @@
               <td>{{ authStore.user?.email || '—' }}</td>
             </tr>
             <tr>
+              <td>Platform Role</td>
+              <td>
+                <v-chip
+                  :color="authStore.isSuperAdmin ? 'error' : 'grey'"
+                  size="small"
+                >
+                  {{ authStore.profile?.platformRole || 'user' }}
+                </v-chip>
+                <span v-if="!authStore.isSuperAdmin" class="ml-2 text-caption text-grey">
+                  Set to "super_admin" in Firestore to enable platform admin
+                </span>
+              </td>
+            </tr>
+            <tr>
               <td>Organization</td>
               <td>{{ orgStore.currentOrg?.name || '—' }}</td>
             </tr>

@@ -10,7 +10,7 @@ import {
   updateProfile,
   type User,
 } from 'firebase/auth'
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, type Unsubscribe } from 'firebase/firestore'
 import { auth, db } from '@/plugins/firebase'
 import { logger } from '@/utils/logger'
 import type { UserProfile } from '@/types/auth'
@@ -38,6 +38,7 @@ export const useAuthStore = defineStore('auth', () => {
           await fetchProfile(firebaseUser.uid)
         } else {
           log.info('Auth state: signed out')
+          unsubscribeProfile()
           profile.value = null
         }
         initialized.value = true
@@ -46,23 +47,48 @@ export const useAuthStore = defineStore('auth', () => {
     })
   }
 
-  async function fetchProfile(uid: string) {
-    log.debug('Fetching user profile', { uid })
-    try {
-      const snap = await getDoc(doc(db, 'users', uid))
-      if (snap.exists()) {
-        profile.value = { uid, ...snap.data() } as UserProfile
-        log.info('Profile loaded', {
-          orgs: profile.value.organizations.length,
-          defaultOrgId: profile.value.defaultOrgId,
-        })
-      } else {
-        log.warn('Profile doc missing', { uid })
-      }
-    } catch (e: any) {
-      log.error('fetchProfile failed', { code: e.code, message: e.message })
-      throw e
+  let profileUnsub: Unsubscribe | null = null
+
+  function unsubscribeProfile() {
+    if (profileUnsub) {
+      profileUnsub()
+      profileUnsub = null
     }
+  }
+
+  async function fetchProfile(uid: string): Promise<void> {
+    log.debug('Subscribing to user profile', { uid })
+    unsubscribeProfile()
+
+    return new Promise((resolve) => {
+      let firstLoad = true
+      profileUnsub = onSnapshot(
+        doc(db, 'users', uid),
+        (snap) => {
+          if (snap.exists()) {
+            profile.value = { uid, ...snap.data() } as UserProfile
+            log.info('Profile snapshot', {
+              orgs: profile.value.organizations.length,
+              defaultOrgId: profile.value.defaultOrgId,
+              platformRole: profile.value.platformRole,
+            })
+          } else {
+            log.warn('Profile doc missing', { uid })
+          }
+          if (firstLoad) {
+            firstLoad = false
+            resolve()
+          }
+        },
+        (err) => {
+          log.error('Profile subscription error', { code: err.code, message: err.message })
+          if (firstLoad) {
+            firstLoad = false
+            resolve()
+          }
+        }
+      )
+    })
   }
 
   async function login(email: string, password: string) {
@@ -108,6 +134,13 @@ export const useAuthStore = defineStore('auth', () => {
 
       user.value = cred.user
       profile.value = { uid: cred.user.uid, ...userProfile }
+
+      // Auto-send welcome email (fire-and-forget)
+      import('@/composables/useEmail').then(({ sendWelcomeByEmail }) => {
+        sendWelcomeByEmail().catch((err) => {
+          log.error('Failed to send welcome email', { message: err.message })
+        })
+      })
     } catch (e: any) {
       log.error('Register failed', { code: e.code, message: e.message })
       error.value = e.message
@@ -144,6 +177,13 @@ export const useAuthStore = defineStore('auth', () => {
           createdAt: serverTimestamp(),
         })
         profile.value = { uid: cred.user.uid, ...userProfile }
+
+        // First-time Google user — send welcome email
+        import('@/composables/useEmail').then(({ sendWelcomeByEmail }) => {
+          sendWelcomeByEmail().catch((err) => {
+            log.error('Failed to send welcome email', { message: err.message })
+          })
+        })
       } else {
         await fetchProfile(cred.user.uid)
       }
@@ -163,6 +203,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function logout() {
     log.info('Logout')
+    unsubscribeProfile()
     await signOut(auth)
     user.value = null
     profile.value = null

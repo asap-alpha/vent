@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import { logger } from "firebase-functions";
 import {
   onDocumentCreated,
 } from "firebase-functions/v2/firestore";
@@ -6,7 +7,6 @@ import {
   onCall,
   HttpsError,
 } from "firebase-functions/v2/https";
-import { onDocumentCreated as onAuthCreated } from "firebase-functions/v2/firestore";
 import { sendEmail } from "./mailer";
 import {
   invitationEmail,
@@ -25,8 +25,21 @@ const db = admin.firestore();
 export const onInvitationCreated = onDocumentCreated(
   "invitations/{invitationId}",
   async (event) => {
+    const invitationId = event.params.invitationId;
+    logger.info("🎯 [onInvitationCreated] Triggered", { invitationId });
+
     const data = event.data?.data();
-    if (!data) return;
+    if (!data) {
+      logger.warn("🎯 [onInvitationCreated] No data in event — skipping");
+      return;
+    }
+
+    logger.info("🎯 [onInvitationCreated] Invitation data", {
+      email: data.email,
+      orgName: data.orgName,
+      role: data.role,
+      invitedBy: data.invitedBy,
+    });
 
     const inviterSnap = await db.doc(`users/${data.invitedBy}`).get();
     const inviterName = inviterSnap.exists
@@ -49,9 +62,12 @@ export const onInvitationCreated = onDocumentCreated(
         subject: email.subject,
         html: email.html,
       });
-      console.log(`Invitation email sent to ${data.email}`);
-    } catch (err) {
-      console.error("Failed to send invitation email:", err);
+      logger.info("🎯 [onInvitationCreated] ✅ Email dispatched", { to: data.email });
+    } catch (err: any) {
+      logger.error("🎯 [onInvitationCreated] ❌ Failed", {
+        to: data.email,
+        error: err.message,
+      });
     }
   }
 );
@@ -63,8 +79,19 @@ export const onInvitationCreated = onDocumentCreated(
 export const onUserCreated = onDocumentCreated(
   "users/{userId}",
   async (event) => {
+    const userId = event.params.userId;
+    logger.info("🎯 [onUserCreated] Triggered", { userId });
+
     const data = event.data?.data();
-    if (!data) return;
+    if (!data) {
+      logger.warn("🎯 [onUserCreated] No data in event — skipping");
+      return;
+    }
+
+    logger.info("🎯 [onUserCreated] User data", {
+      email: data.email,
+      displayName: data.displayName,
+    });
 
     const appUrl = `https://${process.env.GCLOUD_PROJECT}.web.app`;
 
@@ -80,9 +107,12 @@ export const onUserCreated = onDocumentCreated(
         subject: email.subject,
         html: email.html,
       });
-      console.log(`Welcome email sent to ${data.email}`);
-    } catch (err) {
-      console.error("Failed to send welcome email:", err);
+      logger.info("🎯 [onUserCreated] ✅ Welcome email dispatched", { to: data.email });
+    } catch (err: any) {
+      logger.error("🎯 [onUserCreated] ❌ Failed", {
+        to: data.email,
+        error: err.message,
+      });
     }
   }
 );
@@ -94,6 +124,12 @@ export const onUserCreated = onDocumentCreated(
 export const sendInvoiceEmail = onCall(
   { cors: true },
   async (request) => {
+    logger.info("🎯 [sendInvoiceEmail] Called", {
+      uid: request.auth?.uid,
+      orgId: request.data?.orgId,
+      invoiceId: request.data?.invoiceId,
+    });
+
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "Must be signed in");
     }
@@ -163,6 +199,7 @@ export const sendInvoiceEmail = onCall(
       await invSnap.ref.update({ status: "sent", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
     }
 
+    logger.info("🎯 [sendInvoiceEmail] ✅ Done", { to: customer.email, invoiceNumber: inv.number });
     return { success: true, sentTo: customer.email };
   }
 );
@@ -174,23 +211,35 @@ export const sendInvoiceEmail = onCall(
 export const onReceiptCreated = onDocumentCreated(
   "organizations/{orgId}/receipts/{receiptId}",
   async (event) => {
-    const data = event.data?.data();
-    if (!data) return;
     const orgId = event.params.orgId;
+    const receiptId = event.params.receiptId;
+    logger.info("🎯 [onReceiptCreated] Triggered", { orgId, receiptId });
+
+    const data = event.data?.data();
+    if (!data) {
+      logger.warn("🎯 [onReceiptCreated] No data in event — skipping");
+      return;
+    }
 
     // Get customer
     const custSnap = await db
       .doc(`organizations/${orgId}/customers/${data.customerId}`)
       .get();
     const customer = custSnap.data();
-    if (!customer?.email) return;
+    if (!customer?.email) {
+      logger.warn("🎯 [onReceiptCreated] Customer has no email — skipping", { customerId: data.customerId });
+      return;
+    }
 
     // Get invoice
     const invSnap = await db
       .doc(`organizations/${orgId}/salesInvoices/${data.invoiceId}`)
       .get();
     const inv = invSnap.data();
-    if (!inv) return;
+    if (!inv) {
+      logger.warn("🎯 [onReceiptCreated] Invoice not found — skipping", { invoiceId: data.invoiceId });
+      return;
+    }
 
     // Get org
     const orgSnap = await db.doc(`organizations/${orgId}`).get();
@@ -214,9 +263,9 @@ export const onReceiptCreated = onDocumentCreated(
         subject: email.subject,
         html: email.html,
       });
-      console.log(`Payment receipt email sent to ${customer.email}`);
-    } catch (err) {
-      console.error("Failed to send receipt email:", err);
+      logger.info("🎯 [onReceiptCreated] ✅ Receipt email dispatched", { to: customer.email });
+    } catch (err: any) {
+      logger.error("🎯 [onReceiptCreated] ❌ Failed", { to: customer.email, error: err.message });
     }
   }
 );

@@ -98,7 +98,18 @@ const initials = computed(() => {
 })
 
 const orgName = computed(() => orgStore.orgName)
-const organizations = computed(() => orgStore.organizations)
+const organizations = computed(() => {
+  function ts(v: any): number {
+    if (v instanceof Date) return v.getTime()
+    if (v && typeof v.toDate === 'function') return v.toDate().getTime()
+    if (typeof v === 'string' || typeof v === 'number') {
+      const d = new Date(v)
+      return isNaN(d.getTime()) ? 0 : d.getTime()
+    }
+    return 0
+  }
+  return [...orgStore.organizations].sort((a, b) => ts(a.createdAt) - ts(b.createdAt))
+})
 const currentOrgId = computed(() => orgStore.orgId)
 
 const pageTitle = computed(() => {

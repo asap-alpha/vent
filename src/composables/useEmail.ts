@@ -1,33 +1,105 @@
-import { getFunctions, httpsCallable } from 'firebase/functions'
-import app from '@/plugins/firebase'
+import { auth } from '@/plugins/firebase'
 import { logger } from '@/utils/logger'
 
 const log = logger('email')
-const functions = getFunctions(app)
 
 interface SendResult {
   success: boolean
-  sentTo: string
+  sentTo?: string
+  error?: string
 }
 
 /**
- * Send an invoice to the customer's email via Cloud Functions + nodemailer.
+ * Get the current user's Firebase ID token to authenticate the API request.
  */
-export async function sendInvoiceByEmail(orgId: string, invoiceId: string): Promise<SendResult> {
-  log.info('Sending invoice email', { orgId, invoiceId })
+async function getAuthToken(): Promise<string> {
+  const user = auth.currentUser
+  if (!user) throw new Error('Not signed in')
+  return await user.getIdToken()
+}
+
+/**
+ * POST to a Vercel API route with Firebase auth.
+ */
+async function callApi<T extends SendResult>(endpoint: string, body: Record<string, any>): Promise<T> {
+  const token = await getAuthToken()
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(data.error || data.message || `API request failed: ${res.status}`)
+  }
+  return data as T
+}
+
+/**
+ * Send invitation email. Typically called automatically from inviteMember.
+ */
+export async function sendInvitationByEmail(invitationId: string): Promise<SendResult> {
+  log.info('Sending invitation email', { invitationId })
   try {
-    const fn = httpsCallable<{ orgId: string; invoiceId: string }, SendResult>(functions, 'sendInvoiceEmail')
-    const result = await fn({ orgId, invoiceId })
-    log.info('Invoice email sent', { sentTo: result.data.sentTo })
-    return result.data
+    const result = await callApi<SendResult>('/api/send-invitation', { invitationId })
+    log.info('Invitation email sent', { sentTo: result.sentTo })
+    return result
   } catch (e: any) {
-    log.error('Send invoice email failed', { code: e.code, message: e.message })
+    log.error('Send invitation email failed', { message: e.message })
     throw e
   }
 }
 
 /**
- * Send a bill notification to a specified email address.
+ * Send welcome email after registration.
+ */
+export async function sendWelcomeByEmail(): Promise<SendResult> {
+  log.info('Sending welcome email')
+  try {
+    const result = await callApi<SendResult>('/api/send-welcome', {})
+    log.info('Welcome email sent', { sentTo: result.sentTo })
+    return result
+  } catch (e: any) {
+    log.error('Send welcome email failed', { message: e.message })
+    throw e
+  }
+}
+
+/**
+ * Send an invoice to the customer's email.
+ */
+export async function sendInvoiceByEmail(orgId: string, invoiceId: string): Promise<SendResult> {
+  log.info('Sending invoice email', { orgId, invoiceId })
+  try {
+    const result = await callApi<SendResult>('/api/send-invoice', { orgId, invoiceId })
+    log.info('Invoice email sent', { sentTo: result.sentTo })
+    return result
+  } catch (e: any) {
+    log.error('Send invoice email failed', { message: e.message })
+    throw e
+  }
+}
+
+/**
+ * Send payment receipt to customer. Typically called automatically after recordReceipt.
+ */
+export async function sendPaymentReceiptByEmail(orgId: string, receiptId: string): Promise<SendResult> {
+  log.info('Sending payment receipt email', { orgId, receiptId })
+  try {
+    const result = await callApi<SendResult>('/api/send-payment-receipt', { orgId, receiptId })
+    log.info('Payment receipt email sent', { sentTo: result.sentTo })
+    return result
+  } catch (e: any) {
+    log.error('Send payment receipt email failed', { message: e.message })
+    throw e
+  }
+}
+
+/**
+ * Send bill notification to a specified email address.
  */
 export async function sendBillNotificationByEmail(
   orgId: string,
@@ -36,15 +108,11 @@ export async function sendBillNotificationByEmail(
 ): Promise<SendResult> {
   log.info('Sending bill notification', { orgId, billId, recipientEmail })
   try {
-    const fn = httpsCallable<{ orgId: string; billId: string; recipientEmail: string }, SendResult>(
-      functions,
-      'sendBillNotification'
-    )
-    const result = await fn({ orgId, billId, recipientEmail })
-    log.info('Bill notification sent', { sentTo: result.data.sentTo })
-    return result.data
+    const result = await callApi<SendResult>('/api/send-bill-notification', { orgId, billId, recipientEmail })
+    log.info('Bill notification sent', { sentTo: result.sentTo })
+    return result
   } catch (e: any) {
-    log.error('Send bill notification failed', { code: e.code, message: e.message })
+    log.error('Send bill notification failed', { message: e.message })
     throw e
   }
 }
