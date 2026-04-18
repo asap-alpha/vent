@@ -1,17 +1,17 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-6">
-      <h1 class="text-h4 font-weight-bold">Users &amp; Roles</h1>
-      <v-spacer />
-      <v-btn
-        v-if="orgStore.can('users:manage')"
-        color="primary"
-        prepend-icon="mdi-account-plus"
-        @click="openInvite"
-      >
-        Invite User
-      </v-btn>
-    </div>
+    <PageHeader title="Users &amp; Roles">
+      <template #actions>
+        <v-btn
+          v-if="orgStore.can('users:manage')"
+          color="primary"
+          prepend-icon="mdi-account-plus"
+          @click="openInvite"
+        >
+          Invite User
+        </v-btn>
+      </template>
+    </PageHeader>
 
     <v-alert
       v-if="!orgStore.can('users:manage')"
@@ -23,8 +23,10 @@
     </v-alert>
 
     <!-- Members -->
-    <v-card elevation="1" class="mb-4">
-      <v-card-title>Team Members ({{ members.length }})</v-card-title>
+    <v-card class="mb-4">
+      <v-card-text class="pa-5">
+        <div class="text-subtitle-2 font-weight-bold mb-3">Team Members ({{ members.length }})</div>
+      </v-card-text>
       <v-data-table
         :headers="memberHeaders"
         :items="members"
@@ -58,8 +60,10 @@
     </v-card>
 
     <!-- Pending Invitations -->
-    <v-card v-if="orgStore.can('users:manage')" elevation="1">
-      <v-card-title>Pending Invitations ({{ invitations.length }})</v-card-title>
+    <v-card v-if="orgStore.can('users:manage')">
+      <v-card-text class="pa-5">
+        <div class="text-subtitle-2 font-weight-bold mb-3">Pending Invitations ({{ invitations.length }})</div>
+      </v-card-text>
       <v-data-table
         :headers="invHeaders"
         :items="invitations"
@@ -84,8 +88,8 @@
     <!-- Invite Dialog -->
     <v-dialog v-model="inviteDialog" max-width="500" persistent>
       <v-card>
-        <v-card-title>Invite User</v-card-title>
-        <v-card-text>
+        <v-card-text class="pa-5">
+          <div class="text-h6 font-weight-bold mb-4">Invite User</div>
           <v-form ref="inviteFormRef" @submit.prevent="sendInvite">
             <v-text-field
               v-model="inviteForm.email"
@@ -112,7 +116,7 @@
             </v-alert>
           </v-form>
         </v-card-text>
-        <v-card-actions>
+        <v-card-actions class="pa-4 pt-0">
           <v-spacer />
           <v-btn variant="text" @click="inviteDialog = false">Cancel</v-btn>
           <v-btn color="primary" :loading="inviting" @click="sendInvite">Send Invitation</v-btn>
@@ -123,9 +127,9 @@
     <!-- Edit Role Dialog -->
     <v-dialog v-model="roleDialog" max-width="500" persistent>
       <v-card v-if="editingMember">
-        <v-card-title>Edit Role</v-card-title>
-        <v-card-subtitle>{{ editingMember.displayName || editingMember.email }}</v-card-subtitle>
-        <v-card-text>
+        <v-card-text class="pa-5">
+          <div class="text-h6 font-weight-bold mb-1">Edit Role</div>
+          <div class="text-body-2 text-medium-emphasis mb-4">{{ editingMember.displayName || editingMember.email }}</div>
           <v-select
             v-model="editingRole"
             label="Role"
@@ -139,7 +143,7 @@
           </v-select>
           <v-alert v-if="roleError" type="error" variant="tonal" class="mt-2">{{ roleError }}</v-alert>
         </v-card-text>
-        <v-card-actions>
+        <v-card-actions class="pa-4 pt-0">
           <v-spacer />
           <v-btn variant="text" @click="roleDialog = false">Cancel</v-btn>
           <v-btn color="primary" :loading="savingRole" @click="saveRole">Save</v-btn>
@@ -158,6 +162,7 @@ import { useOrganizationStore } from '@/stores/organization'
 import { required, emailRules } from '@/utils/validation'
 import { formatDate } from '@/utils/date'
 import { roleLabel, roleColor, ALL_ROLES } from '@/utils/permissions'
+import PageHeader from '@/components/common/PageHeader.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import type { OrgMember, Invitation, UserRole } from '@/types/auth'
 

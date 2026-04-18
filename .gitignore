@@ -30,6 +30,7 @@ vite.config.*.timestamp-*
 
 # Environment variables (NEVER commit these)
 .env
+.env.example
 .env.local
 .env.development
 .env.development.local
@@ -41,6 +42,8 @@ vite.config.*.timestamp-*
 
 # Firebase
 .firebase/
+functions/.env
+functions/lib/
 firebase-debug.log*
 firestore-debug.log*
 ui-debug.log*
@@ -89,3 +92,4 @@ Thumbs.db
 *.tmp
 *.temp
 .cache/
+.vercel

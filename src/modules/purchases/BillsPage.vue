@@ -1,36 +1,50 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-6">
-      <h1 class="text-h4 font-weight-bold">Bills</h1>
-      <v-spacer />
-      <v-btn color="primary" prepend-icon="mdi-plus" :to="{ name: 'bill-new' }">New Bill</v-btn>
-    </div>
+    <PageHeader title="Bills">
+      <template #actions>
+        <v-btn color="primary" prepend-icon="mdi-plus" size="small" :to="{ name: 'bill-new' }">
+          New Bill
+        </v-btn>
+      </template>
+    </PageHeader>
 
-    <v-card elevation="1" class="pa-4 mb-4">
-      <v-row align="center">
-        <v-col cols="12" md="3">
-          <v-select v-model="statusFilter" label="Status" :items="statusOptions" hide-details />
-        </v-col>
-        <v-col cols="12" md="3">
-          <v-select
-            v-model="supplierFilter"
-            label="Supplier"
-            :items="supplierOptions"
-            item-title="title"
-            item-value="value"
-            hide-details
-            clearable
-          />
-        </v-col>
-      </v-row>
-    </v-card>
-
-    <v-card elevation="1">
+    <v-card>
+      <div class="d-flex align-center flex-wrap ga-2 pa-4 pb-0">
+        <v-select
+          v-model="statusFilter"
+          label="Status"
+          :items="statusOptions"
+          hide-details
+          density="compact"
+          style="max-width: 180px"
+        />
+        <v-select
+          v-model="supplierFilter"
+          label="Supplier"
+          :items="supplierOptions"
+          item-title="title"
+          item-value="value"
+          hide-details
+          clearable
+          density="compact"
+          style="max-width: 180px"
+        />
+        <v-spacer />
+        <v-text-field
+          v-model="search"
+          placeholder="Search..."
+          prepend-inner-icon="mdi-magnify"
+          hide-details
+          density="compact"
+          style="max-width: 240px"
+        />
+      </div>
       <v-data-table
         :headers="headers"
         :items="filteredBills"
         :loading="billsStore.loading"
         :items-per-page="25"
+        :search="search"
         @click:row="onRowClick"
       >
         <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
@@ -42,7 +56,7 @@
         <template #item.total="{ item }">{{ formatCurrency(item.total, currency) }}</template>
         <template #item.amountDue="{ item }">{{ formatCurrency(item.amountDue, currency) }}</template>
         <template #item.status="{ item }">
-          <v-chip :color="statusColor(item.status)" size="small" variant="tonal">
+          <v-chip :color="statusColor(item.status)" size="x-small" variant="tonal">
             {{ statusLabel(item.status) }}
           </v-chip>
         </template>
@@ -50,20 +64,25 @@
           <v-btn
             v-if="item.amountDue > 0 && item.status !== 'draft' && item.status !== 'void'"
             icon="mdi-cash"
-            size="small"
+            size="x-small"
             variant="text"
             color="success"
             title="Record payment"
             @click.stop="openPayment(item)"
           />
-          <v-btn icon="mdi-file-pdf-box" size="small" variant="text" title="Download PDF" @click.stop="downloadPDF(item)" />
-          <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="editBill(item.id)" />
-          <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item.id)" />
+          <v-btn icon="mdi-file-pdf-box" size="x-small" variant="text" title="Download PDF" @click.stop="downloadPDF(item)" />
+          <v-btn icon="mdi-pencil" size="x-small" variant="text" @click.stop="editBill(item.id)" />
+          <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click.stop="confirmDelete(item.id)" />
         </template>
         <template #no-data>
-          <div class="text-center pa-8 text-grey">
-            No bills yet. <router-link :to="{ name: 'bill-new' }">Create one</router-link>
-          </div>
+          <EmptyState
+            icon="mdi-file-document-outline"
+            title="No bills yet"
+            description="Record your first bill to track supplier purchases and payments."
+            action-label="New Bill"
+            action-icon="mdi-plus"
+            :action-to="{ name: 'bill-new' }"
+          />
         </template>
       </v-data-table>
     </v-card>
@@ -114,6 +133,8 @@ import { required, positiveNumber } from '@/utils/validation'
 import { formatCurrency } from '@/utils/currency'
 import { formatDate, formatDateISO } from '@/utils/date'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { exportBillPDF } from '@/utils/pdf'
 import type { PurchaseInvoice, BillStatus } from '@/types/purchases'
 
@@ -123,6 +144,7 @@ const suppliersStore = useSuppliersStore()
 const orgStore = useOrganizationStore()
 
 const currency = computed(() => orgStore.currentOrg?.currency || 'GHS')
+const search = ref('')
 
 const statusFilter = ref<'all' | BillStatus>('all')
 const supplierFilter = ref<string | null>(null)

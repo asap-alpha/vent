@@ -1,5 +1,8 @@
 export type UserRole = 'owner' | 'admin' | 'accountant' | 'clerk' | 'viewer'
 
+/** Platform-level role — stored on /users/{uid}.platformRole, set only via backend */
+export type PlatformRole = 'super_admin' | 'user'
+
 export interface UserProfile {
   uid: string
   email: string
@@ -7,6 +10,7 @@ export interface UserProfile {
   photoURL: string | null
   organizations: string[]
   defaultOrgId: string | null
+  platformRole?: PlatformRole
   createdAt: Date
 }
 
@@ -30,11 +34,17 @@ export interface Invitation {
   createdAt: Date
 }
 
+export type OrgStatus = 'pending' | 'approved' | 'rejected' | 'suspended'
+
 export interface Organization {
   id: string
   name: string
   currency: string
   fiscalYearStart: number // month 1-12
+  status: OrgStatus
+  rejectionReason?: string
   createdBy: string
   createdAt: Date
+  reviewedBy?: string
+  reviewedAt?: Date
 }

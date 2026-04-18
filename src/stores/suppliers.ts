@@ -7,6 +7,9 @@ import {
 import { db } from '@/plugins/firebase'
 import { useOrganizationStore } from './organization'
 import type { Supplier } from '@/types/purchases'
+import { logger } from '@/utils/logger'
+
+const log = logger('suppliers')
 
 export const useSuppliersStore = defineStore('suppliers', () => {
   const suppliers = ref<Supplier[]>([])
@@ -21,25 +24,34 @@ export const useSuppliersStore = defineStore('suppliers', () => {
 
   function subscribe() {
     const orgStore = useOrganizationStore()
-    if (!orgStore.orgId) return
+    if (!orgStore.orgId) {
+      log.warn('subscribe() skipped — no org')
+      return
+    }
+    log.info('Subscribing to suppliers')
     unsubscribe()
     loading.value = true
     const q = query(
       collection(db, 'organizations', orgStore.orgId, 'suppliers'),
       orderBy('name')
     )
-    unsub = onSnapshot(q, (snap) => {
-      suppliers.value = snap.docs.map((d) => {
-        const data = d.data()
-        return {
-          id: d.id,
-          ...data,
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-        } as Supplier
-      })
-      loading.value = false
-    })
+    unsub = onSnapshot(
+      q,
+      (snap) => {
+        suppliers.value = snap.docs.map((d) => {
+          const data = d.data()
+          return {
+            id: d.id,
+            ...data,
+            createdAt: data.createdAt?.toDate() || new Date(),
+            updatedAt: data.updatedAt?.toDate() || new Date(),
+          } as Supplier
+        })
+        log.debug('suppliers snapshot', { count: suppliers.value.length })
+        loading.value = false
+      },
+      (err) => log.error('suppliers subscription error', { code: err.code, message: err.message })
+    )
   }
 
   function unsubscribe() {
@@ -49,12 +61,18 @@ export const useSuppliersStore = defineStore('suppliers', () => {
   async function createSupplier(data: Omit<Supplier, 'id' | 'createdAt' | 'updatedAt' | 'balance'>) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
-    await addDoc(collection(db, 'organizations', orgStore.orgId, 'suppliers'), {
-      ...data,
-      balance: 0,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
+    log.info('createSupplier', { name: (data as any).name })
+    try {
+      await addDoc(collection(db, 'organizations', orgStore.orgId, 'suppliers'), {
+        ...data,
+        balance: 0,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    } catch (e: any) {
+      log.error('createSupplier failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function updateSupplier(id: string, data: Partial<Supplier>) {
@@ -62,16 +80,28 @@ export const useSuppliersStore = defineStore('suppliers', () => {
     if (!orgStore.orgId) throw new Error('No organization')
     const { id: _id, createdAt, ...updateData } = data as any
     void _id; void createdAt
-    await updateDoc(doc(db, 'organizations', orgStore.orgId, 'suppliers', id), {
-      ...updateData,
-      updatedAt: serverTimestamp(),
-    })
+    log.info('updateSupplier', { id })
+    try {
+      await updateDoc(doc(db, 'organizations', orgStore.orgId, 'suppliers', id), {
+        ...updateData,
+        updatedAt: serverTimestamp(),
+      })
+    } catch (e: any) {
+      log.error('updateSupplier failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function deleteSupplier(id: string) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
-    await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'suppliers', id))
+    log.info('deleteSupplier', { id })
+    try {
+      await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'suppliers', id))
+    } catch (e: any) {
+      log.error('deleteSupplier failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   function $reset() {

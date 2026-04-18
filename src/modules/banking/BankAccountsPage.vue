@@ -1,43 +1,47 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-6">
-      <h1 class="text-h4 font-weight-bold">Bank Accounts</h1>
-      <v-spacer />
-      <v-btn
-        v-if="selectedAccount"
-        color="primary"
-        prepend-icon="mdi-plus"
-        class="mr-2"
-        @click="openTransaction('deposit')"
-      >Deposit</v-btn>
-      <v-btn
-        v-if="selectedAccount"
-        color="warning"
-        prepend-icon="mdi-minus"
-        class="mr-2"
-        @click="openTransaction('withdrawal')"
-      >Withdrawal</v-btn>
-      <v-btn
-        v-if="bankingStore.activeAccounts.length >= 2"
-        variant="outlined"
-        prepend-icon="mdi-bank-transfer"
-        class="mr-2"
-        @click="openTransfer"
-      >Transfer</v-btn>
-      <v-btn
-        v-if="selectedAccount"
-        variant="outlined"
-        prepend-icon="mdi-file-upload"
-        class="mr-2"
-        @click="openImport"
-      >Import CSV</v-btn>
-      <v-btn color="primary" prepend-icon="mdi-bank-plus" @click="openCreate">New Account</v-btn>
-    </div>
+    <PageHeader title="Bank Accounts">
+      <template #actions>
+        <v-btn
+          v-if="selectedAccount"
+          color="primary"
+          prepend-icon="mdi-plus"
+          size="small"
+          class="mr-2"
+          @click="openTransaction('deposit')"
+        >Deposit</v-btn>
+        <v-btn
+          v-if="selectedAccount"
+          color="warning"
+          prepend-icon="mdi-minus"
+          size="small"
+          class="mr-2"
+          @click="openTransaction('withdrawal')"
+        >Withdrawal</v-btn>
+        <v-btn
+          v-if="bankingStore.activeAccounts.length >= 2"
+          variant="outlined"
+          prepend-icon="mdi-bank-transfer"
+          size="small"
+          class="mr-2"
+          @click="openTransfer"
+        >Transfer</v-btn>
+        <v-btn
+          v-if="selectedAccount"
+          variant="outlined"
+          prepend-icon="mdi-file-upload"
+          size="small"
+          class="mr-2"
+          @click="openImport"
+        >Import CSV</v-btn>
+        <v-btn color="primary" prepend-icon="mdi-bank-plus" size="small" @click="openCreate">New Account</v-btn>
+      </template>
+    </PageHeader>
 
     <v-row>
       <!-- Account list -->
       <v-col cols="12" md="4">
-        <v-card elevation="1">
+        <v-card>
           <v-list>
             <v-list-subheader>ACCOUNTS</v-list-subheader>
             <v-list-item
@@ -60,8 +64,15 @@
                 </div>
               </template>
             </v-list-item>
-            <v-list-item v-if="bankingStore.accounts.length === 0" class="text-center text-grey">
-              No bank accounts yet
+            <v-list-item v-if="bankingStore.accounts.length === 0">
+              <EmptyState
+                icon="mdi-bank-outline"
+                title="No bank accounts"
+                description="Add a bank account to start tracking your finances."
+                action-label="New Account"
+                action-icon="mdi-plus"
+                @action="openCreate"
+              />
             </v-list-item>
           </v-list>
         </v-card>
@@ -69,23 +80,37 @@
 
       <!-- Transactions for selected account -->
       <v-col cols="12" md="8">
-        <v-card v-if="selectedAccount" elevation="1">
-          <v-card-title>
-            {{ selectedAccount.name }}
-            <v-chip class="ml-2" size="small" variant="tonal">{{ selectedAccount.type }}</v-chip>
-          </v-card-title>
-          <v-card-subtitle>
-            Current balance: <strong>{{ formatCurrency(bankingStore.currentBalance(selectedAccount.id), selectedAccount.currency) }}</strong>
-            · Opening: {{ formatCurrency(selectedAccount.openingBalance, selectedAccount.currency) }}
-          </v-card-subtitle>
+        <v-card v-if="selectedAccount">
+          <div class="pa-4 pb-0">
+            <div class="d-flex align-center flex-wrap ga-2">
+              <div>
+                <div class="text-h6 font-weight-bold">{{ selectedAccount.name }}</div>
+                <div class="text-body-2 text-medium-emphasis">
+                  Current balance: <strong>{{ formatCurrency(bankingStore.currentBalance(selectedAccount.id), selectedAccount.currency) }}</strong>
+                  · Opening: {{ formatCurrency(selectedAccount.openingBalance, selectedAccount.currency) }}
+                </div>
+              </div>
+              <v-chip class="ml-2" size="x-small" variant="tonal">{{ selectedAccount.type }}</v-chip>
+              <v-spacer />
+              <v-text-field
+                v-model="txnSearch"
+                placeholder="Search..."
+                prepend-inner-icon="mdi-magnify"
+                hide-details
+                density="compact"
+                style="max-width: 240px"
+              />
+            </div>
+          </div>
           <v-data-table
             :headers="txnHeaders"
             :items="accountTransactions"
             :items-per-page="25"
+            :search="txnSearch"
           >
             <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
             <template #item.type="{ item }">
-              <v-chip :color="typeColor(item.type)" size="small" variant="tonal">{{ item.type }}</v-chip>
+              <v-chip :color="typeColor(item.type)" size="x-small" variant="tonal">{{ item.type }}</v-chip>
             </template>
             <template #item.amount="{ item }">
               <span :class="item.type === 'deposit' ? 'text-success' : 'text-error'">
@@ -93,19 +118,27 @@
               </span>
             </template>
             <template #item.reconciled="{ item }">
-              <v-icon :color="item.reconciled ? 'success' : 'grey'">
-                {{ item.reconciled ? 'mdi-check-circle' : 'mdi-circle-outline' }}
-              </v-icon>
+              <v-chip
+                :color="item.reconciled ? 'success' : 'grey'"
+                size="x-small"
+                variant="tonal"
+              >
+                {{ item.reconciled ? 'Yes' : 'No' }}
+              </v-chip>
             </template>
             <template #item.actions="{ item }">
-              <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDeleteTxn(item.id)" />
+              <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click="confirmDeleteTxn(item.id)" />
             </template>
             <template #no-data>
-              <div class="text-center pa-8 text-grey">No transactions yet.</div>
+              <EmptyState
+                icon="mdi-swap-horizontal"
+                title="No transactions yet"
+                description="Record a deposit or withdrawal to get started."
+              />
             </template>
           </v-data-table>
         </v-card>
-        <v-card v-else elevation="1" class="pa-8 text-center text-grey">
+        <v-card v-else class="pa-8 text-center text-medium-emphasis">
           Select an account to view transactions.
         </v-card>
       </v-col>
@@ -329,6 +362,8 @@ import { required, positiveNumber } from '@/utils/validation'
 import { formatCurrency } from '@/utils/currency'
 import { formatDate, formatDateISO } from '@/utils/date'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { parseStatementCSV, type ParsedTransaction } from '@/utils/csv'
 import type { BankAccount, BankAccountType, BankTransactionType } from '@/types/banking'
 
@@ -336,6 +371,7 @@ const bankingStore = useBankingStore()
 const orgStore = useOrganizationStore()
 
 const selectedId = ref<string>('')
+const txnSearch = ref('')
 
 const selectedAccount = computed(() =>
   selectedId.value ? bankingStore.getAccount(selectedId.value) : null

@@ -19,6 +19,9 @@ import { useAuthStore } from './auth'
 import { useAccountsStore } from './accounts'
 import { isBalanced, totalDebits, totalCredits } from '@/utils/accounting'
 import type { JournalEntry, JournalLine, LedgerEntry, TrialBalanceRow, AccountType } from '@/types/accounting'
+import { logger } from '@/utils/logger'
+
+const log = logger('transactions')
 
 export const useTransactionsStore = defineStore('transactions', () => {
   const entries = ref<JournalEntry[]>([])
@@ -32,7 +35,11 @@ export const useTransactionsStore = defineStore('transactions', () => {
 
   function subscribe() {
     const orgStore = useOrganizationStore()
-    if (!orgStore.orgId) return
+    if (!orgStore.orgId) {
+      log.warn('subscribe() skipped — no org')
+      return
+    }
+    log.info('Subscribing to journalEntries')
     unsubscribe()
     loading.value = true
 
@@ -53,9 +60,11 @@ export const useTransactionsStore = defineStore('transactions', () => {
             updatedAt: data.updatedAt?.toDate() || new Date(),
           } as JournalEntry
         })
+        log.debug('journalEntries snapshot', { count: entries.value.length })
         loading.value = false
       },
       (err) => {
+        log.error('journalEntries subscription error', { code: err.code, message: err.message })
         error.value = err.message
         loading.value = false
       }
@@ -89,19 +98,25 @@ export const useTransactionsStore = defineStore('transactions', () => {
       throw new Error('At least 2 lines required for a journal entry')
     }
 
-    await addDoc(
-      collection(db, 'organizations', orgStore.orgId, 'journalEntries'),
-      {
-        date: Timestamp.fromDate(data.date),
-        reference: data.reference,
-        memo: data.memo,
-        lines: data.lines,
-        status: data.status || 'draft',
-        createdBy: authStore.user.uid,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }
-    )
+    log.info('createEntry', { reference: data.reference, status: data.status || 'draft', lineCount: data.lines.length })
+    try {
+      await addDoc(
+        collection(db, 'organizations', orgStore.orgId, 'journalEntries'),
+        {
+          date: Timestamp.fromDate(data.date),
+          reference: data.reference,
+          memo: data.memo,
+          lines: data.lines,
+          status: data.status || 'draft',
+          createdBy: authStore.user.uid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }
+      )
+    } catch (e: any) {
+      log.error('createEntry failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function updateEntry(id: string, data: Partial<JournalEntry>) {
@@ -119,18 +134,30 @@ export const useTransactionsStore = defineStore('transactions', () => {
       updateData.date = Timestamp.fromDate(updateData.date)
     }
 
-    await updateDoc(
-      doc(db, 'organizations', orgStore.orgId, 'journalEntries', id),
-      updateData
-    )
+    log.info('updateEntry', { id, status: data.status })
+    try {
+      await updateDoc(
+        doc(db, 'organizations', orgStore.orgId, 'journalEntries', id),
+        updateData
+      )
+    } catch (e: any) {
+      log.error('updateEntry failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function deleteEntry(id: string) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
-    await deleteDoc(
-      doc(db, 'organizations', orgStore.orgId, 'journalEntries', id)
-    )
+    log.info('deleteEntry', { id })
+    try {
+      await deleteDoc(
+        doc(db, 'organizations', orgStore.orgId, 'journalEntries', id)
+      )
+    } catch (e: any) {
+      log.error('deleteEntry failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function postEntry(id: string) {

@@ -1,19 +1,31 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-6">
-      <h1 class="text-h4 font-weight-bold">Journal Entries</h1>
-      <v-spacer />
-      <v-btn color="primary" prepend-icon="mdi-plus" :to="{ name: 'journal-entry-new' }">
-        New Entry
-      </v-btn>
-    </div>
+    <PageHeader title="Journal Entries">
+      <template #actions>
+        <v-btn color="primary" prepend-icon="mdi-plus" size="small" :to="{ name: 'journal-entry-new' }">
+          New Entry
+        </v-btn>
+      </template>
+    </PageHeader>
 
-    <v-card elevation="1">
+    <v-card>
+      <div class="d-flex align-center flex-wrap ga-2 pa-4 pb-0">
+        <v-spacer />
+        <v-text-field
+          v-model="search"
+          placeholder="Search..."
+          prepend-inner-icon="mdi-magnify"
+          hide-details
+          density="compact"
+          style="max-width: 240px"
+        />
+      </div>
       <v-data-table
         :headers="headers"
         :items="entries"
         :loading="transactionsStore.loading"
         :items-per-page="25"
+        :search="search"
         @click:row="onRowClick"
       >
         <template #item.date="{ item }">
@@ -23,7 +35,7 @@
           {{ formatCurrency(sumDebits(item.lines), currency) }}
         </template>
         <template #item.status="{ item }">
-          <v-chip :color="statusColor(item.status)" size="small" variant="tonal">
+          <v-chip :color="statusColor(item.status)" size="x-small" variant="tonal">
             {{ item.status }}
           </v-chip>
         </template>
@@ -31,30 +43,34 @@
           <v-btn
             v-if="item.status === 'draft'"
             icon="mdi-check"
-            size="small"
+            size="x-small"
             variant="text"
             color="success"
             @click.stop="postEntry(item.id)"
           />
           <v-btn
             icon="mdi-pencil"
-            size="small"
+            size="x-small"
             variant="text"
             @click.stop="editEntry(item.id)"
           />
           <v-btn
             icon="mdi-delete"
-            size="small"
+            size="x-small"
             variant="text"
             color="error"
             @click.stop="confirmDelete(item.id)"
           />
         </template>
         <template #no-data>
-          <div class="text-center pa-8 text-grey">
-            No journal entries yet.
-            <router-link :to="{ name: 'journal-entry-new' }">Create one</router-link>
-          </div>
+          <EmptyState
+            icon="mdi-book-edit-outline"
+            title="No journal entries yet"
+            description="Create a journal entry to record manual accounting adjustments."
+            action-label="New Entry"
+            action-icon="mdi-plus"
+            :action-to="{ name: 'journal-entry-new' }"
+          />
         </template>
       </v-data-table>
     </v-card>
@@ -77,6 +93,8 @@ import { useOrganizationStore } from '@/stores/organization'
 import { formatCurrency } from '@/utils/currency'
 import { formatDate } from '@/utils/date'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import type { JournalEntry, JournalLine, JournalStatus } from '@/types/accounting'
 
 const router = useRouter()
@@ -86,6 +104,7 @@ const orgStore = useOrganizationStore()
 
 const entries = computed(() => transactionsStore.entries)
 const currency = computed(() => orgStore.currentOrg?.currency || 'GHS')
+const search = ref('')
 
 const headers = [
   { title: 'Date', key: 'date', width: 130 },

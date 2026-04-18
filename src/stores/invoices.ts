@@ -17,6 +17,9 @@ import { db } from '@/plugins/firebase'
 import { useOrganizationStore } from './organization'
 import { useAuthStore } from './auth'
 import type { SalesInvoice, InvoiceLine, InvoiceStatus, Quote, CreditNote, Receipt } from '@/types/sales'
+import { logger } from '@/utils/logger'
+
+const log = logger('invoices')
 
 export const useInvoicesStore = defineStore('invoices', () => {
   const invoices = ref<SalesInvoice[]>([])
@@ -53,7 +56,11 @@ export const useInvoicesStore = defineStore('invoices', () => {
 
   function subscribe() {
     const orgStore = useOrganizationStore()
-    if (!orgStore.orgId) return
+    if (!orgStore.orgId) {
+      log.warn('subscribe() skipped — no org')
+      return
+    }
+    log.info('Subscribing to sales collections')
     unsubscribe()
     loading.value = true
 
@@ -64,8 +71,10 @@ export const useInvoicesStore = defineStore('invoices', () => {
         query(collection(db, ...orgPath, 'salesInvoices'), orderBy('date', 'desc')),
         (snap) => {
           invoices.value = snap.docs.map((d) => mapDoc(d) as SalesInvoice)
+          log.debug('salesInvoices snapshot', { count: invoices.value.length })
           loading.value = false
-        }
+        },
+        (err) => log.error('salesInvoices subscription error', { code: err.code, message: err.message })
       )
     )
     subs.push(
@@ -73,7 +82,9 @@ export const useInvoicesStore = defineStore('invoices', () => {
         query(collection(db, ...orgPath, 'quotes'), orderBy('date', 'desc')),
         (snap) => {
           quotes.value = snap.docs.map((d) => mapDoc(d) as Quote)
-        }
+          log.debug('quotes snapshot', { count: quotes.value.length })
+        },
+        (err) => log.error('quotes subscription error', { code: err.code, message: err.message })
       )
     )
     subs.push(
@@ -81,7 +92,9 @@ export const useInvoicesStore = defineStore('invoices', () => {
         query(collection(db, ...orgPath, 'creditNotes'), orderBy('date', 'desc')),
         (snap) => {
           creditNotes.value = snap.docs.map((d) => mapDoc(d) as CreditNote)
-        }
+          log.debug('creditNotes snapshot', { count: creditNotes.value.length })
+        },
+        (err) => log.error('creditNotes subscription error', { code: err.code, message: err.message })
       )
     )
     subs.push(
@@ -89,7 +102,9 @@ export const useInvoicesStore = defineStore('invoices', () => {
         query(collection(db, ...orgPath, 'receipts'), orderBy('date', 'desc')),
         (snap) => {
           receipts.value = snap.docs.map((d) => mapDoc(d) as Receipt)
-        }
+          log.debug('receipts snapshot', { count: receipts.value.length })
+        },
+        (err) => log.error('receipts subscription error', { code: err.code, message: err.message })
       )
     )
   }
@@ -126,27 +141,33 @@ export const useInvoicesStore = defineStore('invoices', () => {
     const lines = recomputeLineAmounts(data.lines)
     const { subtotal, taxTotal, total } = calcTotals(lines)
 
-    await addDoc(
-      collection(db, 'organizations', orgStore.orgId, 'salesInvoices'),
-      {
-        customerId: data.customerId,
-        customerName: data.customerName || '',
-        number: data.number,
-        date: Timestamp.fromDate(data.date),
-        dueDate: Timestamp.fromDate(data.dueDate),
-        status: data.status || 'draft',
-        lines,
-        subtotal,
-        taxTotal,
-        total,
-        amountPaid: 0,
-        amountDue: total,
-        notes: data.notes,
-        createdBy: authStore.user.uid,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }
-    )
+    log.info('createInvoice', { number: data.number, customerId: data.customerId, total })
+    try {
+      await addDoc(
+        collection(db, 'organizations', orgStore.orgId, 'salesInvoices'),
+        {
+          customerId: data.customerId,
+          customerName: data.customerName || '',
+          number: data.number,
+          date: Timestamp.fromDate(data.date),
+          dueDate: Timestamp.fromDate(data.dueDate),
+          status: data.status || 'draft',
+          lines,
+          subtotal,
+          taxTotal,
+          total,
+          amountPaid: 0,
+          amountDue: total,
+          notes: data.notes,
+          createdBy: authStore.user.uid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }
+      )
+    } catch (e: any) {
+      log.error('createInvoice failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function updateInvoice(id: string, data: Partial<SalesInvoice>) {
@@ -170,16 +191,28 @@ export const useInvoicesStore = defineStore('invoices', () => {
     if (updateData.date instanceof Date) updateData.date = Timestamp.fromDate(updateData.date)
     if (updateData.dueDate instanceof Date) updateData.dueDate = Timestamp.fromDate(updateData.dueDate)
 
-    await updateDoc(
-      doc(db, 'organizations', orgStore.orgId, 'salesInvoices', id),
-      updateData
-    )
+    log.info('updateInvoice', { id })
+    try {
+      await updateDoc(
+        doc(db, 'organizations', orgStore.orgId, 'salesInvoices', id),
+        updateData
+      )
+    } catch (e: any) {
+      log.error('updateInvoice failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function deleteInvoice(id: string) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
-    await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'salesInvoices', id))
+    log.info('deleteInvoice', { id })
+    try {
+      await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'salesInvoices', id))
+    } catch (e: any) {
+      log.error('deleteInvoice failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function recordReceipt(data: {
@@ -202,35 +235,49 @@ export const useInvoicesStore = defineStore('invoices', () => {
       throw new Error(`Amount exceeds amount due (${invoice.amountDue})`)
     }
 
-    // Create receipt
-    await addDoc(collection(db, 'organizations', orgStore.orgId, 'receipts'), {
-      customerId: data.customerId,
-      invoiceId: data.invoiceId,
-      date: Timestamp.fromDate(data.date),
-      amount: data.amount,
-      method: data.method,
-      reference: data.reference,
-      notes: data.notes,
-      createdBy: authStore.user.uid,
-      createdAt: serverTimestamp(),
-    })
+    log.info('recordReceipt', { invoiceId: data.invoiceId, amount: data.amount, method: data.method })
+    try {
+      // Create receipt
+      const receiptRef = await addDoc(collection(db, 'organizations', orgStore.orgId, 'receipts'), {
+        customerId: data.customerId,
+        invoiceId: data.invoiceId,
+        date: Timestamp.fromDate(data.date),
+        amount: data.amount,
+        method: data.method,
+        reference: data.reference,
+        notes: data.notes,
+        createdBy: authStore.user.uid,
+        createdAt: serverTimestamp(),
+      })
 
-    // Update invoice
-    const newPaid = invoice.amountPaid + data.amount
-    const newDue = invoice.total - newPaid
-    let newStatus: InvoiceStatus = invoice.status
-    if (newDue < 0.005) newStatus = 'paid'
-    else if (newPaid > 0) newStatus = 'partially_paid'
+      // Update invoice
+      const newPaid = invoice.amountPaid + data.amount
+      const newDue = invoice.total - newPaid
+      let newStatus: InvoiceStatus = invoice.status
+      if (newDue < 0.005) newStatus = 'paid'
+      else if (newPaid > 0) newStatus = 'partially_paid'
 
-    await updateDoc(
-      doc(db, 'organizations', orgStore.orgId, 'salesInvoices', data.invoiceId),
-      {
-        amountPaid: newPaid,
-        amountDue: Math.max(newDue, 0),
-        status: newStatus,
-        updatedAt: serverTimestamp(),
-      }
-    )
+      await updateDoc(
+        doc(db, 'organizations', orgStore.orgId, 'salesInvoices', data.invoiceId),
+        {
+          amountPaid: newPaid,
+          amountDue: Math.max(newDue, 0),
+          status: newStatus,
+          updatedAt: serverTimestamp(),
+        }
+      )
+
+      // Auto-send payment receipt email (fire-and-forget)
+      const orgIdForEmail = orgStore.orgId
+      import('@/composables/useEmail').then(({ sendPaymentReceiptByEmail }) => {
+        sendPaymentReceiptByEmail(orgIdForEmail, receiptRef.id).catch((err) => {
+          log.error('Failed to send payment receipt email', { receiptId: receiptRef.id, message: err.message })
+        })
+      })
+    } catch (e: any) {
+      log.error('recordReceipt failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   // ---- Quotes ----
@@ -252,23 +299,29 @@ export const useInvoicesStore = defineStore('invoices', () => {
     const lines = recomputeLineAmounts(data.lines)
     const { subtotal, taxTotal, total } = calcTotals(lines)
 
-    await addDoc(collection(db, 'organizations', orgStore.orgId, 'quotes'), {
-      customerId: data.customerId,
-      customerName: data.customerName || '',
-      number: data.number,
-      date: Timestamp.fromDate(data.date),
-      expiryDate: Timestamp.fromDate(data.expiryDate),
-      status: data.status || 'draft',
-      lines,
-      subtotal,
-      taxTotal,
-      total,
-      notes: data.notes,
-      convertedInvoiceId: null,
-      createdBy: authStore.user.uid,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
+    log.info('createQuote', { number: data.number, customerId: data.customerId, total })
+    try {
+      await addDoc(collection(db, 'organizations', orgStore.orgId, 'quotes'), {
+        customerId: data.customerId,
+        customerName: data.customerName || '',
+        number: data.number,
+        date: Timestamp.fromDate(data.date),
+        expiryDate: Timestamp.fromDate(data.expiryDate),
+        status: data.status || 'draft',
+        lines,
+        subtotal,
+        taxTotal,
+        total,
+        notes: data.notes,
+        convertedInvoiceId: null,
+        createdBy: authStore.user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    } catch (e: any) {
+      log.error('createQuote failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function updateQuote(id: string, data: Partial<Quote>) {
@@ -286,13 +339,25 @@ export const useInvoicesStore = defineStore('invoices', () => {
     }
     if (updateData.date instanceof Date) updateData.date = Timestamp.fromDate(updateData.date)
     if (updateData.expiryDate instanceof Date) updateData.expiryDate = Timestamp.fromDate(updateData.expiryDate)
-    await updateDoc(doc(db, 'organizations', orgStore.orgId, 'quotes', id), updateData)
+    log.info('updateQuote', { id })
+    try {
+      await updateDoc(doc(db, 'organizations', orgStore.orgId, 'quotes', id), updateData)
+    } catch (e: any) {
+      log.error('updateQuote failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function deleteQuote(id: string) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
-    await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'quotes', id))
+    log.info('deleteQuote', { id })
+    try {
+      await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'quotes', id))
+    } catch (e: any) {
+      log.error('deleteQuote failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function convertQuoteToInvoice(quoteId: string, dueDate: Date, invoiceNumber: string) {
@@ -301,21 +366,27 @@ export const useInvoicesStore = defineStore('invoices', () => {
     const quote = quotes.value.find((q) => q.id === quoteId)
     if (!quote) throw new Error('Quote not found')
 
-    await createInvoice({
-      customerId: quote.customerId,
-      customerName: quote.customerName,
-      number: invoiceNumber,
-      date: new Date(),
-      dueDate,
-      lines: quote.lines,
-      notes: quote.notes,
-      status: 'sent',
-    })
+    log.info('convertQuoteToInvoice', { quoteId, invoiceNumber })
+    try {
+      await createInvoice({
+        customerId: quote.customerId,
+        customerName: quote.customerName,
+        number: invoiceNumber,
+        date: new Date(),
+        dueDate,
+        lines: quote.lines,
+        notes: quote.notes,
+        status: 'sent',
+      })
 
-    await updateDoc(doc(db, 'organizations', orgStore.orgId, 'quotes', quoteId), {
-      status: 'converted',
-      updatedAt: serverTimestamp(),
-    })
+      await updateDoc(doc(db, 'organizations', orgStore.orgId, 'quotes', quoteId), {
+        status: 'converted',
+        updatedAt: serverTimestamp(),
+      })
+    } catch (e: any) {
+      log.error('convertQuoteToInvoice failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   // ---- Credit Notes ----
@@ -336,26 +407,38 @@ export const useInvoicesStore = defineStore('invoices', () => {
     const lines = recomputeLineAmounts(data.lines)
     const { subtotal, taxTotal, total } = calcTotals(lines)
 
-    await addDoc(collection(db, 'organizations', orgStore.orgId, 'creditNotes'), {
-      customerId: data.customerId,
-      customerName: data.customerName || '',
-      invoiceId: data.invoiceId,
-      number: data.number,
-      date: Timestamp.fromDate(data.date),
-      lines,
-      subtotal,
-      taxTotal,
-      total,
-      notes: data.notes,
-      createdBy: authStore.user.uid,
-      createdAt: serverTimestamp(),
-    })
+    log.info('createCreditNote', { number: data.number, invoiceId: data.invoiceId, total })
+    try {
+      await addDoc(collection(db, 'organizations', orgStore.orgId, 'creditNotes'), {
+        customerId: data.customerId,
+        customerName: data.customerName || '',
+        invoiceId: data.invoiceId,
+        number: data.number,
+        date: Timestamp.fromDate(data.date),
+        lines,
+        subtotal,
+        taxTotal,
+        total,
+        notes: data.notes,
+        createdBy: authStore.user.uid,
+        createdAt: serverTimestamp(),
+      })
+    } catch (e: any) {
+      log.error('createCreditNote failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function deleteCreditNote(id: string) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
-    await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'creditNotes', id))
+    log.info('deleteCreditNote', { id })
+    try {
+      await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'creditNotes', id))
+    } catch (e: any) {
+      log.error('deleteCreditNote failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   // ---- Helpers ----

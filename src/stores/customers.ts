@@ -14,7 +14,10 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/plugins/firebase'
 import { useOrganizationStore } from './organization'
+import { logger } from '@/utils/logger'
 import type { Customer } from '@/types/sales'
+
+const log = logger('customers')
 
 export const useCustomersStore = defineStore('customers', () => {
   const customers = ref<Customer[]>([])
@@ -30,25 +33,31 @@ export const useCustomersStore = defineStore('customers', () => {
 
   function subscribe() {
     const orgStore = useOrganizationStore()
-    if (!orgStore.orgId) return
+    if (!orgStore.orgId) { log.warn('subscribe() skipped — no org'); return }
     unsubscribe()
+    log.info('Subscribing to customers')
     loading.value = true
     const q = query(
       collection(db, 'organizations', orgStore.orgId, 'customers'),
       orderBy('name')
     )
-    unsub = onSnapshot(q, (snap) => {
-      customers.value = snap.docs.map((d) => {
-        const data = d.data()
-        return {
-          id: d.id,
-          ...data,
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-        } as Customer
-      })
-      loading.value = false
-    })
+    unsub = onSnapshot(
+      q,
+      (snap) => {
+        customers.value = snap.docs.map((d) => {
+          const data = d.data()
+          return {
+            id: d.id,
+            ...data,
+            createdAt: data.createdAt?.toDate() || new Date(),
+            updatedAt: data.updatedAt?.toDate() || new Date(),
+          } as Customer
+        })
+        log.debug('Customers snapshot', { count: customers.value.length })
+        loading.value = false
+      },
+      (err) => log.error('Customers subscription error', { code: err.code, message: err.message })
+    )
   }
 
   function unsubscribe() {
@@ -61,12 +70,19 @@ export const useCustomersStore = defineStore('customers', () => {
   async function createCustomer(data: Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'balance'>) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
-    await addDoc(collection(db, 'organizations', orgStore.orgId, 'customers'), {
-      ...data,
-      balance: 0,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
+    log.info('Creating customer', { name: data.name })
+    try {
+      const ref = await addDoc(collection(db, 'organizations', orgStore.orgId, 'customers'), {
+        ...data,
+        balance: 0,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+      log.info('Customer created', { id: ref.id })
+    } catch (e: any) {
+      log.error('createCustomer failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function updateCustomer(id: string, data: Partial<Customer>) {

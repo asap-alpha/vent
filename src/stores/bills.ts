@@ -11,6 +11,9 @@ import type {
   PurchaseInvoice, BillLine, BillStatus,
   PurchaseOrder, DebitNote, Payment,
 } from '@/types/purchases'
+import { logger } from '@/utils/logger'
+
+const log = logger('bills')
 
 export const useBillsStore = defineStore('bills', () => {
   const bills = ref<PurchaseInvoice[]>([])
@@ -53,7 +56,11 @@ export const useBillsStore = defineStore('bills', () => {
 
   function subscribe() {
     const orgStore = useOrganizationStore()
-    if (!orgStore.orgId) return
+    if (!orgStore.orgId) {
+      log.warn('subscribe() skipped — no org')
+      return
+    }
+    log.info('Subscribing to purchase collections')
     unsubscribe()
     loading.value = true
     const orgPath = ['organizations', orgStore.orgId] as const
@@ -63,8 +70,10 @@ export const useBillsStore = defineStore('bills', () => {
         query(collection(db, ...orgPath, 'purchaseInvoices'), orderBy('date', 'desc')),
         (snap) => {
           bills.value = snap.docs.map((d) => mapDoc(d) as PurchaseInvoice)
+          log.debug('purchaseInvoices snapshot', { count: bills.value.length })
           loading.value = false
-        }
+        },
+        (err) => log.error('purchaseInvoices subscription error', { code: err.code, message: err.message })
       )
     )
     subs.push(
@@ -72,7 +81,9 @@ export const useBillsStore = defineStore('bills', () => {
         query(collection(db, ...orgPath, 'purchaseOrders'), orderBy('date', 'desc')),
         (snap) => {
           purchaseOrders.value = snap.docs.map((d) => mapDoc(d) as PurchaseOrder)
-        }
+          log.debug('purchaseOrders snapshot', { count: purchaseOrders.value.length })
+        },
+        (err) => log.error('purchaseOrders subscription error', { code: err.code, message: err.message })
       )
     )
     subs.push(
@@ -80,7 +91,9 @@ export const useBillsStore = defineStore('bills', () => {
         query(collection(db, ...orgPath, 'debitNotes'), orderBy('date', 'desc')),
         (snap) => {
           debitNotes.value = snap.docs.map((d) => mapDoc(d) as DebitNote)
-        }
+          log.debug('debitNotes snapshot', { count: debitNotes.value.length })
+        },
+        (err) => log.error('debitNotes subscription error', { code: err.code, message: err.message })
       )
     )
     subs.push(
@@ -88,7 +101,9 @@ export const useBillsStore = defineStore('bills', () => {
         query(collection(db, ...orgPath, 'payments'), orderBy('date', 'desc')),
         (snap) => {
           payments.value = snap.docs.map((d) => mapDoc(d) as Payment)
-        }
+          log.debug('payments snapshot', { count: payments.value.length })
+        },
+        (err) => log.error('payments subscription error', { code: err.code, message: err.message })
       )
     )
   }
@@ -116,21 +131,27 @@ export const useBillsStore = defineStore('bills', () => {
     const lines = recomputeLines(data.lines)
     const { subtotal, taxTotal, total } = calcTotals(lines)
 
-    await addDoc(collection(db, 'organizations', orgStore.orgId, 'purchaseInvoices'), {
-      supplierId: data.supplierId,
-      supplierName: data.supplierName || '',
-      number: data.number,
-      date: Timestamp.fromDate(data.date),
-      dueDate: Timestamp.fromDate(data.dueDate),
-      status: data.status || 'draft',
-      lines, subtotal, taxTotal, total,
-      amountPaid: 0,
-      amountDue: total,
-      notes: data.notes,
-      createdBy: authStore.user.uid,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
+    log.info('createBill', { number: data.number, supplierId: data.supplierId, total })
+    try {
+      await addDoc(collection(db, 'organizations', orgStore.orgId, 'purchaseInvoices'), {
+        supplierId: data.supplierId,
+        supplierName: data.supplierName || '',
+        number: data.number,
+        date: Timestamp.fromDate(data.date),
+        dueDate: Timestamp.fromDate(data.dueDate),
+        status: data.status || 'draft',
+        lines, subtotal, taxTotal, total,
+        amountPaid: 0,
+        amountDue: total,
+        notes: data.notes,
+        createdBy: authStore.user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    } catch (e: any) {
+      log.error('createBill failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function updateBill(id: string, data: Partial<PurchaseInvoice>) {
@@ -151,16 +172,28 @@ export const useBillsStore = defineStore('bills', () => {
     }
     if (updateData.date instanceof Date) updateData.date = Timestamp.fromDate(updateData.date)
     if (updateData.dueDate instanceof Date) updateData.dueDate = Timestamp.fromDate(updateData.dueDate)
-    await updateDoc(
-      doc(db, 'organizations', orgStore.orgId, 'purchaseInvoices', id),
-      updateData
-    )
+    log.info('updateBill', { id })
+    try {
+      await updateDoc(
+        doc(db, 'organizations', orgStore.orgId, 'purchaseInvoices', id),
+        updateData
+      )
+    } catch (e: any) {
+      log.error('updateBill failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function deleteBill(id: string) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
-    await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'purchaseInvoices', id))
+    log.info('deleteBill', { id })
+    try {
+      await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'purchaseInvoices', id))
+    } catch (e: any) {
+      log.error('deleteBill failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function recordPayment(data: {
@@ -183,33 +216,39 @@ export const useBillsStore = defineStore('bills', () => {
       throw new Error(`Amount exceeds amount due (${bill.amountDue})`)
     }
 
-    await addDoc(collection(db, 'organizations', orgStore.orgId, 'payments'), {
-      supplierId: data.supplierId,
-      billId: data.billId,
-      date: Timestamp.fromDate(data.date),
-      amount: data.amount,
-      method: data.method,
-      reference: data.reference,
-      notes: data.notes,
-      createdBy: authStore.user.uid,
-      createdAt: serverTimestamp(),
-    })
+    log.info('recordPayment', { billId: data.billId, amount: data.amount, method: data.method })
+    try {
+      await addDoc(collection(db, 'organizations', orgStore.orgId, 'payments'), {
+        supplierId: data.supplierId,
+        billId: data.billId,
+        date: Timestamp.fromDate(data.date),
+        amount: data.amount,
+        method: data.method,
+        reference: data.reference,
+        notes: data.notes,
+        createdBy: authStore.user.uid,
+        createdAt: serverTimestamp(),
+      })
 
-    const newPaid = bill.amountPaid + data.amount
-    const newDue = bill.total - newPaid
-    let newStatus: BillStatus = bill.status
-    if (newDue < 0.005) newStatus = 'paid'
-    else if (newPaid > 0) newStatus = 'partially_paid'
+      const newPaid = bill.amountPaid + data.amount
+      const newDue = bill.total - newPaid
+      let newStatus: BillStatus = bill.status
+      if (newDue < 0.005) newStatus = 'paid'
+      else if (newPaid > 0) newStatus = 'partially_paid'
 
-    await updateDoc(
-      doc(db, 'organizations', orgStore.orgId, 'purchaseInvoices', data.billId),
-      {
-        amountPaid: newPaid,
-        amountDue: Math.max(newDue, 0),
-        status: newStatus,
-        updatedAt: serverTimestamp(),
-      }
-    )
+      await updateDoc(
+        doc(db, 'organizations', orgStore.orgId, 'purchaseInvoices', data.billId),
+        {
+          amountPaid: newPaid,
+          amountDue: Math.max(newDue, 0),
+          status: newStatus,
+          updatedAt: serverTimestamp(),
+        }
+      )
+    } catch (e: any) {
+      log.error('recordPayment failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   // ---- Purchase Orders ----
@@ -230,19 +269,25 @@ export const useBillsStore = defineStore('bills', () => {
     const lines = recomputeLines(data.lines)
     const { subtotal, taxTotal, total } = calcTotals(lines)
 
-    await addDoc(collection(db, 'organizations', orgStore.orgId, 'purchaseOrders'), {
-      supplierId: data.supplierId,
-      supplierName: data.supplierName || '',
-      number: data.number,
-      date: Timestamp.fromDate(data.date),
-      status: data.status || 'draft',
-      lines, subtotal, taxTotal, total,
-      notes: data.notes,
-      convertedBillId: null,
-      createdBy: authStore.user.uid,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
+    log.info('createPO', { number: data.number, supplierId: data.supplierId, total })
+    try {
+      await addDoc(collection(db, 'organizations', orgStore.orgId, 'purchaseOrders'), {
+        supplierId: data.supplierId,
+        supplierName: data.supplierName || '',
+        number: data.number,
+        date: Timestamp.fromDate(data.date),
+        status: data.status || 'draft',
+        lines, subtotal, taxTotal, total,
+        notes: data.notes,
+        convertedBillId: null,
+        createdBy: authStore.user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    } catch (e: any) {
+      log.error('createPO failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function updatePO(id: string, data: Partial<PurchaseOrder>) {
@@ -259,13 +304,25 @@ export const useBillsStore = defineStore('bills', () => {
       updateData.total = total
     }
     if (updateData.date instanceof Date) updateData.date = Timestamp.fromDate(updateData.date)
-    await updateDoc(doc(db, 'organizations', orgStore.orgId, 'purchaseOrders', id), updateData)
+    log.info('updatePO', { id })
+    try {
+      await updateDoc(doc(db, 'organizations', orgStore.orgId, 'purchaseOrders', id), updateData)
+    } catch (e: any) {
+      log.error('updatePO failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function deletePO(id: string) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
-    await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'purchaseOrders', id))
+    log.info('deletePO', { id })
+    try {
+      await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'purchaseOrders', id))
+    } catch (e: any) {
+      log.error('deletePO failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function convertPOToBill(poId: string, dueDate: Date, billNumber: string) {
@@ -274,21 +331,27 @@ export const useBillsStore = defineStore('bills', () => {
     const po = purchaseOrders.value.find((p) => p.id === poId)
     if (!po) throw new Error('Purchase Order not found')
 
-    await createBill({
-      supplierId: po.supplierId,
-      supplierName: po.supplierName,
-      number: billNumber,
-      date: new Date(),
-      dueDate,
-      lines: po.lines,
-      notes: po.notes,
-      status: 'received',
-    })
+    log.info('convertPOToBill', { poId, billNumber })
+    try {
+      await createBill({
+        supplierId: po.supplierId,
+        supplierName: po.supplierName,
+        number: billNumber,
+        date: new Date(),
+        dueDate,
+        lines: po.lines,
+        notes: po.notes,
+        status: 'received',
+      })
 
-    await updateDoc(doc(db, 'organizations', orgStore.orgId, 'purchaseOrders', poId), {
-      status: 'converted',
-      updatedAt: serverTimestamp(),
-    })
+      await updateDoc(doc(db, 'organizations', orgStore.orgId, 'purchaseOrders', poId), {
+        status: 'converted',
+        updatedAt: serverTimestamp(),
+      })
+    } catch (e: any) {
+      log.error('convertPOToBill failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   // ---- Debit Notes ----
@@ -309,23 +372,35 @@ export const useBillsStore = defineStore('bills', () => {
     const lines = recomputeLines(data.lines)
     const { subtotal, taxTotal, total } = calcTotals(lines)
 
-    await addDoc(collection(db, 'organizations', orgStore.orgId, 'debitNotes'), {
-      supplierId: data.supplierId,
-      supplierName: data.supplierName || '',
-      billId: data.billId,
-      number: data.number,
-      date: Timestamp.fromDate(data.date),
-      lines, subtotal, taxTotal, total,
-      notes: data.notes,
-      createdBy: authStore.user.uid,
-      createdAt: serverTimestamp(),
-    })
+    log.info('createDebitNote', { number: data.number, billId: data.billId, total })
+    try {
+      await addDoc(collection(db, 'organizations', orgStore.orgId, 'debitNotes'), {
+        supplierId: data.supplierId,
+        supplierName: data.supplierName || '',
+        billId: data.billId,
+        number: data.number,
+        date: Timestamp.fromDate(data.date),
+        lines, subtotal, taxTotal, total,
+        notes: data.notes,
+        createdBy: authStore.user.uid,
+        createdAt: serverTimestamp(),
+      })
+    } catch (e: any) {
+      log.error('createDebitNote failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   async function deleteDebitNote(id: string) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
-    await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'debitNotes', id))
+    log.info('deleteDebitNote', { id })
+    try {
+      await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'debitNotes', id))
+    } catch (e: any) {
+      log.error('deleteDebitNote failed', { code: e.code, message: e.message })
+      throw e
+    }
   }
 
   // ---- Helpers ----

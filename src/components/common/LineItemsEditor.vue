@@ -1,102 +1,114 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-2">
-      <h3 class="text-subtitle-1 font-weight-bold">Line Items</h3>
+    <div class="d-flex align-center mb-3">
+      <div class="text-subtitle-2 font-weight-bold">Line Items</div>
       <v-spacer />
-      <v-btn size="small" prepend-icon="mdi-plus" variant="tonal" @click="addLine">
+      <v-btn size="small" prepend-icon="mdi-plus" variant="tonal" color="primary" @click="addLine">
         Add Line
       </v-btn>
     </div>
 
-    <v-table density="comfortable">
-      <thead>
-        <tr>
-          <th>Description</th>
-          <th class="text-end" style="width: 90px">Qty</th>
-          <th class="text-end" style="width: 130px">Unit Price</th>
-          <th class="text-end" style="width: 90px">Tax %</th>
-          <th class="text-end" style="width: 140px">Amount</th>
-          <th style="width: 50px"></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="(line, idx) in modelValue" :key="idx">
-          <td>
-            <v-text-field
-              v-model="line.description"
-              density="compact"
-              variant="outlined"
-              hide-details
-              placeholder="Description"
-              @update:model-value="emitUpdate"
-            />
-          </td>
-          <td>
-            <v-text-field
-              v-model.number="line.quantity"
-              type="number"
-              density="compact"
-              variant="outlined"
-              hide-details
-              min="0"
-              step="1"
-              @update:model-value="emitUpdate"
-            />
-          </td>
-          <td>
-            <v-text-field
-              v-model.number="line.unitPrice"
-              type="number"
-              density="compact"
-              variant="outlined"
-              hide-details
-              min="0"
-              step="0.01"
-              @update:model-value="emitUpdate"
-            />
-          </td>
-          <td>
-            <v-text-field
-              v-model.number="line.taxRate"
-              type="number"
-              density="compact"
-              variant="outlined"
-              hide-details
-              min="0"
-              step="0.01"
-              @update:model-value="emitUpdate"
-            />
-          </td>
-          <td class="text-end">{{ formatCurrency(lineAmount(line), currency) }}</td>
-          <td class="text-center">
-            <v-btn
-              icon="mdi-close"
-              size="x-small"
-              variant="text"
-              :disabled="modelValue.length <= 1"
-              @click="removeLine(idx)"
-            />
-          </td>
-        </tr>
-      </tbody>
-      <tfoot>
-        <tr>
-          <td colspan="4" class="text-end">Subtotal</td>
-          <td class="text-end">{{ formatCurrency(totals.subtotal, currency) }}</td>
-          <td></td>
-        </tr>
-        <tr>
-          <td colspan="4" class="text-end">Tax</td>
-          <td class="text-end">{{ formatCurrency(totals.taxTotal, currency) }}</td>
-          <td></td>
-        </tr>
-        <tr class="font-weight-bold">
-          <td colspan="4" class="text-end">Total</td>
-          <td class="text-end">{{ formatCurrency(totals.total, currency) }}</td>
-          <td></td>
-        </tr>
-      </tfoot>
-    </v-table>
+    <div class="line-items-table">
+      <v-table density="comfortable">
+        <thead>
+          <tr>
+            <th class="text-body-2 font-weight-medium">Description</th>
+            <th class="text-body-2 font-weight-medium text-end" style="width: 80px">Qty</th>
+            <th class="text-body-2 font-weight-medium text-end" style="width: 120px">Unit Price</th>
+            <th class="text-body-2 font-weight-medium text-end" style="width: 80px">Tax %</th>
+            <th class="text-body-2 font-weight-medium text-end" style="width: 130px">Amount</th>
+            <th style="width: 44px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(line, idx) in modelValue" :key="idx">
+            <td class="py-2">
+              <v-text-field
+                v-model="line.description"
+                density="compact"
+                variant="solo-filled"
+                flat
+                hide-details
+                placeholder="Description"
+                @update:model-value="emitUpdate"
+              />
+            </td>
+            <td class="py-2">
+              <v-text-field
+                v-model.number="line.quantity"
+                type="number"
+                density="compact"
+                variant="solo-filled"
+                flat
+                hide-details
+                min="0"
+                step="1"
+                class="text-end-input"
+                @update:model-value="emitUpdate"
+              />
+            </td>
+            <td class="py-2">
+              <v-text-field
+                v-model.number="line.unitPrice"
+                type="number"
+                density="compact"
+                variant="solo-filled"
+                flat
+                hide-details
+                min="0"
+                step="0.01"
+                class="text-end-input"
+                @update:model-value="emitUpdate"
+              />
+            </td>
+            <td class="py-2">
+              <v-text-field
+                v-model.number="line.taxRate"
+                type="number"
+                density="compact"
+                variant="solo-filled"
+                flat
+                hide-details
+                min="0"
+                step="0.01"
+                class="text-end-input"
+                @update:model-value="emitUpdate"
+              />
+            </td>
+            <td class="text-end py-2 text-body-2 font-weight-medium">
+              {{ formatCurrency(lineAmount(line), currency) }}
+            </td>
+            <td class="py-2 text-center">
+              <v-btn
+                icon="mdi-close"
+                size="x-small"
+                variant="text"
+                color="error"
+                :disabled="modelValue.length <= 1"
+                @click="removeLine(idx)"
+              />
+            </td>
+          </tr>
+        </tbody>
+      </v-table>
+
+      <!-- Totals -->
+      <div class="totals-section">
+        <div class="totals-row">
+          <span class="text-body-2 text-medium-emphasis">Subtotal</span>
+          <span class="text-body-2">{{ formatCurrency(totals.subtotal, currency) }}</span>
+        </div>
+        <div class="totals-row">
+          <span class="text-body-2 text-medium-emphasis">Tax</span>
+          <span class="text-body-2">{{ formatCurrency(totals.taxTotal, currency) }}</span>
+        </div>
+        <v-divider class="my-2" />
+        <div class="totals-row">
+          <span class="text-subtitle-2 font-weight-bold">Total</span>
+          <span class="text-subtitle-1 font-weight-bold">{{ formatCurrency(totals.total, currency) }}</span>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -156,3 +168,33 @@ function removeLine(idx: number) {
   emit('update:modelValue', next)
 }
 </script>
+
+<style scoped>
+.line-items-table {
+  border: 1px solid rgb(var(--v-theme-on-surface), 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.totals-section {
+  background: rgb(var(--v-theme-surface-variant));
+  padding: 16px 20px;
+}
+
+.totals-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 40px;
+  padding: 2px 0;
+}
+
+.totals-row span:first-child {
+  min-width: 80px;
+  text-align: right;
+}
+
+:deep(.text-end-input input) {
+  text-align: right;
+}
+</style>

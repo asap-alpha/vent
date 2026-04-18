@@ -1,19 +1,21 @@
 <template>
-  <div>
-    <div class="d-flex align-center mb-6">
-      <h1 class="text-h4 font-weight-bold">Trial Balance</h1>
-      <v-spacer />
-      <v-text-field
-        v-model="asOfDate"
-        label="As of"
-        type="date"
-        density="compact"
-        hide-details
-        style="max-width: 200px"
-      />
+  <div class="trial-balance-report">
+    <PageHeader title="Trial Balance" />
+
+    <div class="d-flex align-center flex-wrap ga-2 mb-4">
+      <v-btn-toggle v-model="period" mandatory density="compact" rounded="lg" variant="outlined">
+        <v-btn value="today" size="small">Today</v-btn>
+        <v-btn value="month" size="small">Month End</v-btn>
+        <v-btn value="quarter" size="small">Quarter End</v-btn>
+        <v-btn value="year" size="small">Year End</v-btn>
+        <v-btn value="custom" size="small">Custom</v-btn>
+      </v-btn-toggle>
+      <template v-if="period === 'custom'">
+        <v-text-field v-model="asOfDate" type="date" label="As of" density="compact" hide-details style="max-width: 160px" />
+      </template>
     </div>
 
-    <v-card elevation="1">
+    <v-card>
       <v-data-table
         :headers="headers"
         :items="rows"
@@ -55,12 +57,29 @@ import { useTransactionsStore } from '@/stores/transactions'
 import { useOrganizationStore } from '@/stores/organization'
 import { formatCurrency } from '@/utils/currency'
 import { formatDateISO } from '@/utils/date'
+import { endOfMonth, endOfQuarter, endOfYear, subMonths, subQuarters } from 'date-fns'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const accountsStore = useAccountsStore()
 const transactionsStore = useTransactionsStore()
 const orgStore = useOrganizationStore()
 
+const period = ref('today')
 const asOfDate = ref(formatDateISO(new Date()))
+
+watch(period, (val) => {
+  const now = new Date()
+  if (val === 'today') {
+    asOfDate.value = formatDateISO(now)
+  } else if (val === 'month') {
+    asOfDate.value = formatDateISO(endOfMonth(subMonths(now, 1)))
+  } else if (val === 'quarter') {
+    asOfDate.value = formatDateISO(endOfQuarter(subQuarters(now, 1)))
+  } else if (val === 'year') {
+    asOfDate.value = formatDateISO(endOfYear(new Date(now.getFullYear() - 1, 0, 1)))
+  }
+})
+
 const currency = computed(() => orgStore.currentOrg?.currency || 'GHS')
 
 const rows = computed(() =>
@@ -96,3 +115,16 @@ watch(
   }
 )
 </script>
+
+<style scoped>
+@media print {
+  .v-navigation-drawer,
+  .v-app-bar,
+  .v-btn-toggle {
+    display: none !important;
+  }
+  .trial-balance-report {
+    padding: 0;
+  }
+}
+</style>

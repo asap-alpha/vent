@@ -1,9 +1,21 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { initApp, resetInit } from '@/composables/useAppInit'
+import { logger } from '@/utils/logger'
+
+const log = logger('router')
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    // Landing page (public)
+    {
+      path: '/',
+      name: 'landing',
+      component: () => import('@/modules/landing/LandingPage.vue'),
+      meta: { layout: 'none' },
+    },
+
     // Auth routes
     {
       path: '/login',
@@ -20,7 +32,7 @@ const router = createRouter({
 
     // Dashboard
     {
-      path: '/',
+      path: '/dashboard',
       name: 'dashboard',
       component: () => import('@/modules/settings/DashboardPage.vue'),
       meta: { requiresAuth: true },
@@ -187,23 +199,65 @@ const router = createRouter({
       component: () => import('@/modules/settings/UsersPage.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/settings/diagnostics',
+      name: 'diagnostics',
+      component: () => import('@/modules/settings/DiagnosticsPage.vue'),
+      meta: { requiresAuth: true },
+    },
+
+    // Super Admin
+    {
+      path: '/admin',
+      name: 'admin',
+      component: () => import('@/modules/admin/AdminDashboard.vue'),
+      meta: { requiresAuth: true, requiresSuperAdmin: true },
+    },
   ],
 })
 
-router.beforeEach(async (to) => {
+router.beforeEach(async (to, from) => {
   const authStore = useAuthStore()
+  log.debug('Navigate', { from: from.fullPath, to: to.fullPath })
 
-  // Wait for auth to initialize
+  // 1. Wait for Firebase Auth to resolve
   if (!authStore.initialized) {
+    log.debug('Waiting for auth init')
     await authStore.init()
   }
 
+  // 2. Gate check
   if (to.meta.requiresAuth && !authStore.user) {
+    log.info('Redirect to login (no auth)', { to: to.fullPath })
     return { name: 'login', query: { redirect: to.fullPath } }
   }
 
   if (to.meta.requiresGuest && authStore.user) {
+    log.info('Redirect to dashboard (already authed)')
     return { name: 'dashboard' }
+  }
+
+  // Landing page: redirect to dashboard if already signed in
+  if (to.name === 'landing' && authStore.initialized && authStore.user) {
+    return { name: 'dashboard' }
+  }
+
+  // 3. Super admin guard
+  if (to.meta.requiresSuperAdmin) {
+    if (authStore.profile?.platformRole !== 'super_admin') {
+      log.warn('Super admin access denied', { to: to.fullPath })
+      return { name: 'dashboard' }
+    }
+  }
+
+  // 4. Initialize app (org + all stores) — runs once per session
+  if (authStore.user && to.meta.requiresAuth) {
+    await initApp()
+  }
+
+  // 5. Reset init state on logout
+  if (!authStore.user) {
+    resetInit()
   }
 })
 

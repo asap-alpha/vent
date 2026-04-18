@@ -1,36 +1,39 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-6">
-      <h1 class="text-h4 font-weight-bold">Bank Reconciliation</h1>
-      <v-spacer />
-      <v-btn
-        v-if="selectedAccount && !activeRec"
-        color="primary"
-        prepend-icon="mdi-play"
-        @click="openStart"
-      >
-        Start Reconciliation
-      </v-btn>
-    </div>
+    <PageHeader title="Bank Reconciliation">
+      <template #actions>
+        <v-btn
+          v-if="selectedAccount && !activeRec"
+          color="primary"
+          prepend-icon="mdi-play"
+          size="small"
+          @click="openStart"
+        >
+          Start Reconciliation
+        </v-btn>
+      </template>
+    </PageHeader>
 
-    <v-card elevation="1" class="pa-4 mb-4">
-      <v-row align="center">
-        <v-col cols="12" md="6">
-          <v-select
-            v-model="selectedAccountId"
-            label="Bank Account"
-            :items="accountOptions"
-            item-title="title"
-            item-value="value"
-            hide-details
-          />
-        </v-col>
-      </v-row>
+    <v-card class="mb-4">
+      <div class="d-flex align-center flex-wrap ga-2 pa-4">
+        <v-select
+          v-model="selectedAccountId"
+          label="Bank Account"
+          :items="accountOptions"
+          item-title="title"
+          item-value="value"
+          hide-details
+          density="compact"
+          style="max-width: 280px"
+        />
+      </div>
     </v-card>
 
     <!-- No active reconciliation -->
-    <v-card v-if="selectedAccount && !activeRec" elevation="1">
-      <v-card-title>Past Reconciliations</v-card-title>
+    <v-card v-if="selectedAccount && !activeRec">
+      <div class="pa-4 pb-0">
+        <div class="text-subtitle-1 font-weight-bold">Past Reconciliations</div>
+      </div>
       <v-data-table
         :headers="recHeaders"
         :items="pastReconciliations"
@@ -45,35 +48,39 @@
           </span>
         </template>
         <template #item.status="{ item }">
-          <v-chip :color="item.status === 'completed' ? 'success' : 'warning'" size="small" variant="tonal">
+          <v-chip :color="item.status === 'completed' ? 'success' : 'warning'" size="x-small" variant="tonal">
             {{ item.status.replace('_', ' ') }}
           </v-chip>
         </template>
         <template #no-data>
-          <div class="text-center pa-8 text-grey">No past reconciliations.</div>
+          <EmptyState
+            icon="mdi-scale-balance"
+            title="No past reconciliations"
+            description="Start a reconciliation to match your bank statement with recorded transactions."
+          />
         </template>
       </v-data-table>
     </v-card>
 
     <!-- Active reconciliation -->
-    <v-card v-if="activeRec && selectedAccount" elevation="1">
-      <v-card-title class="d-flex align-center">
-        Reconciling — {{ formatDate(activeRec.date) }}
+    <v-card v-if="activeRec && selectedAccount">
+      <div class="d-flex align-center pa-4 pb-0">
+        <div class="text-subtitle-1 font-weight-bold">Reconciling — {{ formatDate(activeRec.date) }}</div>
         <v-spacer />
-        <v-btn variant="text" color="error" @click="cancelReconciliation">Cancel</v-btn>
-      </v-card-title>
+        <v-btn variant="text" color="error" size="small" @click="cancelReconciliation">Cancel</v-btn>
+      </div>
 
-      <v-row class="px-4 pb-2">
+      <v-row class="px-4 py-2">
         <v-col cols="12" md="3">
-          <div class="text-caption text-grey">Statement Balance</div>
+          <div class="text-caption text-medium-emphasis">Statement Balance</div>
           <div class="text-h6 font-weight-bold">{{ formatCurrency(activeRec.statementBalance, currency) }}</div>
         </v-col>
         <v-col cols="12" md="3">
-          <div class="text-caption text-grey">Reconciled Balance</div>
+          <div class="text-caption text-medium-emphasis">Reconciled Balance</div>
           <div class="text-h6 font-weight-bold">{{ formatCurrency(reconciledTotal, currency) }}</div>
         </v-col>
         <v-col cols="12" md="3">
-          <div class="text-caption text-grey">Difference</div>
+          <div class="text-caption text-medium-emphasis">Difference</div>
           <div class="text-h6 font-weight-bold" :class="Math.abs(difference) < 0.005 ? 'text-success' : 'text-error'">
             {{ formatCurrency(difference, currency) }}
           </div>
@@ -110,7 +117,7 @@
         </template>
         <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
         <template #item.type="{ item }">
-          <v-chip :color="typeColor(item.type)" size="small" variant="tonal">{{ item.type }}</v-chip>
+          <v-chip :color="typeColor(item.type)" size="x-small" variant="tonal">{{ item.type }}</v-chip>
         </template>
         <template #item.amount="{ item }">
           <span :class="item.type === 'deposit' ? 'text-success' : 'text-error'">
@@ -157,6 +164,8 @@ import { useOrganizationStore } from '@/stores/organization'
 import { required } from '@/utils/validation'
 import { formatCurrency } from '@/utils/currency'
 import { formatDate, formatDateISO } from '@/utils/date'
+import PageHeader from '@/components/common/PageHeader.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import type { BankTransactionType } from '@/types/banking'
 
 const bankingStore = useBankingStore()
@@ -278,10 +287,6 @@ async function completeReconciliation() {
 
 async function cancelReconciliation() {
   if (!activeRec.value) return
-  // Mark as completed with current state to clear the in_progress status,
-  // or alternatively delete. For simplicity we delete.
-  // (deleting reconciliation doc directly via banking store update is overkill;
-  //  for now, mark complete with current state)
   const txnIds = unreconciledTransactions.value.filter((t) => t.reconciled).map((t) => t.id)
   await bankingStore.completeReconciliation(activeRec.value.id, reconciledTotal.value, txnIds)
 }
