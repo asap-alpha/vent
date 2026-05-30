@@ -47,4 +47,12 @@ export interface Organization {
   createdAt: Date
   reviewedBy?: string
   reviewedAt?: Date
+  // Subscription fields (see src/stores/subscription.ts)
+  plan?: 'starter' | 'standard' | 'pro'
+  subscriptionStatus?: 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired'
+  billingCycle?: 'monthly' | 'annual'
+  trialEndsAt?: Date | null
+  currentPeriodStart?: Date | null
+  currentPeriodEnd?: Date | null
+  canceledAt?: Date | null
 }

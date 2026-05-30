@@ -9,6 +9,19 @@
     </v-app-bar-title>
 
     <template #append>
+      <!-- Trial countdown chip -->
+      <v-chip
+        v-if="subStore.isTrialing"
+        :color="trialChipColor"
+        size="small"
+        variant="tonal"
+        prepend-icon="mdi-clock-outline"
+        class="mr-2 d-none d-md-inline-flex"
+        :to="{ name: 'billing' }"
+      >
+        Trial: {{ subStore.daysLeftInTrial }}d left — Upgrade
+      </v-chip>
+
       <!-- Search -->
       <GlobalSearch class="d-none d-sm-block mr-2" />
 
@@ -80,6 +93,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useOrganizationStore } from '@/stores/organization'
+import { useSubscriptionStore } from '@/stores/subscription'
 import GlobalSearch from './GlobalSearch.vue'
 
 defineEmits<{ 'toggle-drawer': []; 'create-org': [] }>()
@@ -88,6 +102,14 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const orgStore = useOrganizationStore()
+const subStore = useSubscriptionStore()
+
+const trialChipColor = computed(() => {
+  const d = subStore.daysLeftInTrial
+  if (d <= 3) return 'error'
+  if (d <= 7) return 'warning'
+  return 'info'
+})
 
 const displayName = computed(() => authStore.displayName)
 const email = computed(() => authStore.user?.email || '')

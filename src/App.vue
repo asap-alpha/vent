@@ -9,6 +9,7 @@
     </component>
   </template>
   <AppToast />
+  <UpgradePromptDialog />
 </template>
 
 <script setup lang="ts">
@@ -17,6 +18,7 @@ import { useRoute } from 'vue-router'
 import DashboardLayout from '@/layouts/DashboardLayout.vue'
 import AuthLayout from '@/layouts/AuthLayout.vue'
 import AppToast from '@/components/common/AppToast.vue'
+import UpgradePromptDialog from '@/components/common/UpgradePromptDialog.vue'
 
 const route = useRoute()
 

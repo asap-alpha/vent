@@ -26,8 +26,7 @@
               <v-text-field
                 v-model="line.description"
                 density="compact"
-                variant="solo-filled"
-                flat
+                variant="outlined"
                 hide-details
                 placeholder="Description"
                 @update:model-value="emitUpdate"
@@ -38,12 +37,11 @@
                 v-model.number="line.quantity"
                 type="number"
                 density="compact"
-                variant="solo-filled"
-                flat
+                variant="outlined"
                 hide-details
                 min="0"
                 step="1"
-                class="text-end-input"
+                class="text-end-input no-spinner"
                 @update:model-value="emitUpdate"
               />
             </td>
@@ -52,12 +50,11 @@
                 v-model.number="line.unitPrice"
                 type="number"
                 density="compact"
-                variant="solo-filled"
-                flat
+                variant="outlined"
                 hide-details
                 min="0"
                 step="0.01"
-                class="text-end-input"
+                class="text-end-input no-spinner"
                 @update:model-value="emitUpdate"
               />
             </td>
@@ -66,12 +63,11 @@
                 v-model.number="line.taxRate"
                 type="number"
                 density="compact"
-                variant="solo-filled"
-                flat
+                variant="outlined"
                 hide-details
                 min="0"
                 step="0.01"
-                class="text-end-input"
+                class="text-end-input no-spinner"
                 @update:model-value="emitUpdate"
               />
             </td>
@@ -196,5 +192,14 @@ function removeLine(idx: number) {
 
 :deep(.text-end-input input) {
   text-align: right;
+}
+
+:deep(.no-spinner input[type='number']) {
+  -moz-appearance: textfield;
+}
+:deep(.no-spinner input[type='number']::-webkit-outer-spin-button),
+:deep(.no-spinner input[type='number']::-webkit-inner-spin-button) {
+  -webkit-appearance: none;
+  margin: 0;
 }
 </style>

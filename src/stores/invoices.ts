@@ -138,6 +138,16 @@ export const useInvoicesStore = defineStore('invoices', () => {
     const authStore = useAuthStore()
     if (!orgStore.orgId || !authStore.user) throw new Error('Not authenticated')
 
+    // Plan enforcement: cap invoices per calendar month
+    const { useFeatureGate } = await import('@/composables/useFeatureGate')
+    const monthStart = new Date()
+    monthStart.setDate(1)
+    monthStart.setHours(0, 0, 0, 0)
+    const invoicesThisMonth = invoices.value.filter(
+      (i) => i.date && new Date(i.date).getTime() >= monthStart.getTime()
+    ).length
+    useFeatureGate().requireUnderLimit('invoicesPerMonth', invoicesThisMonth, 'invoice this month')
+
     const lines = recomputeLineAmounts(data.lines)
     const { subtotal, taxTotal, total } = calcTotals(lines)
 
