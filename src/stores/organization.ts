@@ -88,6 +88,10 @@ export const useOrganizationStore = defineStore('organization', () => {
             status: data.status || 'approved', // legacy orgs without status are treated as approved
             createdAt: toDate(data.createdAt),
             reviewedAt: data.reviewedAt ? toDate(data.reviewedAt) : undefined,
+            trialEndsAt: data.trialEndsAt ? toDate(data.trialEndsAt) : null,
+            currentPeriodStart: data.currentPeriodStart ? toDate(data.currentPeriodStart) : null,
+            currentPeriodEnd: data.currentPeriodEnd ? toDate(data.currentPeriodEnd) : null,
+            canceledAt: data.canceledAt ? toDate(data.canceledAt) : null,
           } as Organization)
         } else {
           log.warn('Org doc not found', { id })
@@ -143,9 +147,22 @@ export const useOrganizationStore = defineStore('organization', () => {
     if (!authStore.user) throw new Error('Not authenticated')
 
     log.info('Creating organization', { name, currency, fiscalYearStart })
+
+    // Plan enforcement: count the user's existing orgs against their current plan's limit.
+    // Only enforce if the user already has at least one org (first org always allowed — it's how trials start).
+    if (organizations.value.length > 0) {
+      const { useFeatureGate } = await import('@/composables/useFeatureGate')
+      useFeatureGate().requireUnderLimit('organizations', organizations.value.length, 'organization')
+    }
+
     loading.value = true
     try {
       // All new orgs start as 'pending' — super admin reviews them from /admin
+      // Subscription: every org begins on the Standard plan with a 15-day trial.
+      const TRIAL_DAYS = 15
+      const trialEndsAt = new Date()
+      trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS)
+
       const orgRef = await addDoc(collection(db, 'organizations'), {
         name,
         currency,
@@ -153,6 +170,12 @@ export const useOrganizationStore = defineStore('organization', () => {
         status: 'pending',
         createdBy: authStore.user.uid,
         createdAt: serverTimestamp(),
+        plan: 'standard',
+        subscriptionStatus: 'trialing',
+        billingCycle: 'monthly',
+        trialEndsAt,
+        currentPeriodStart: null,
+        currentPeriodEnd: null,
       })
       log.info('Org doc created (pending review)', { orgId: orgRef.id })
 
@@ -279,6 +302,11 @@ export const useOrganizationStore = defineStore('organization', () => {
     if (invitations.value.find((i) => i.email.toLowerCase() === email.toLowerCase())) {
       throw new Error('An invitation is already pending for this email')
     }
+
+    // Plan enforcement: members + pending invites must stay under the seat limit
+    const { useFeatureGate } = await import('@/composables/useFeatureGate')
+    const seatsUsed = members.value.length + invitations.value.length
+    useFeatureGate().requireUnderLimit('users', seatsUsed, 'user')
 
     const invRef = await addDoc(collection(db, 'invitations'), {
       orgId: currentOrg.value.id,

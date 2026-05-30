@@ -9,6 +9,7 @@ import { useInvoicesStore } from '@/stores/invoices'
 import { useSuppliersStore } from '@/stores/suppliers'
 import { useBillsStore } from '@/stores/bills'
 import { useBankingStore } from '@/stores/banking'
+import { useSubscriptionStore } from '@/stores/subscription'
 
 const log = logger('init')
 
@@ -103,6 +104,7 @@ export function subscribeAll() {
   useSuppliersStore().subscribe()
   useBillsStore().subscribe()
   useBankingStore().subscribe()
+  useSubscriptionStore().subscribe(orgStore.orgId)
 
   log.info(`subscribeAll: all stores subscribed in ${Math.round(performance.now() - t0)}ms`)
 }

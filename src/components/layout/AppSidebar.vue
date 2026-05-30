@@ -78,8 +78,16 @@
         </template>
         <v-list-item title="Profit & Loss" :to="{ name: 'profit-loss' }" active-class="sidebar-active" />
         <v-list-item title="Balance Sheet" :to="{ name: 'balance-sheet' }" active-class="sidebar-active" />
-        <v-list-item title="Trial Balance" :to="{ name: 'trial-balance' }" active-class="sidebar-active" />
-        <v-list-item title="Aging Report" :to="{ name: 'aging' }" active-class="sidebar-active" />
+        <v-list-item title="Trial Balance" :to="{ name: 'trial-balance' }" active-class="sidebar-active">
+          <template v-if="!hasAdvancedReports" #append>
+            <v-icon size="14" color="warning">mdi-lock-outline</v-icon>
+          </template>
+        </v-list-item>
+        <v-list-item title="Aging Report" :to="{ name: 'aging' }" active-class="sidebar-active">
+          <template v-if="!hasAdvancedReports" #append>
+            <v-icon size="14" color="warning">mdi-lock-outline</v-icon>
+          </template>
+        </v-list-item>
       </v-list-group>
     </v-list>
 
@@ -96,6 +104,12 @@
           prepend-icon="mdi-account-group-outline"
           title="Users"
           :to="{ name: 'users' }"
+          active-class="sidebar-active"
+        />
+        <v-list-item
+          prepend-icon="mdi-credit-card-outline"
+          title="Billing & Plans"
+          :to="{ name: 'billing' }"
           active-class="sidebar-active"
         />
         <v-list-item
@@ -123,6 +137,7 @@ import { computed } from 'vue'
 import { useDisplay } from 'vuetify'
 import { useOrganizationStore } from '@/stores/organization'
 import { useAuthStore } from '@/stores/auth'
+import { useFeatureGate } from '@/composables/useFeatureGate'
 
 defineProps<{ modelValue: boolean }>()
 defineEmits<{ 'update:modelValue': [value: boolean] }>()
@@ -133,6 +148,8 @@ const authStore = useAuthStore()
 const orgName = computed(() => orgStore.orgName || 'No organization')
 const isOwnerOrAdmin = computed(() => orgStore.myRole === 'owner' || orgStore.myRole === 'admin')
 const isSuperAdmin = computed(() => authStore.isSuperAdmin)
+const gate = useFeatureGate()
+const hasAdvancedReports = computed(() => gate.hasFeature('advancedReports'))
 </script>
 
 <style scoped>

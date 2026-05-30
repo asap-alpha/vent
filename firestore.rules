@@ -10,13 +10,15 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Platform-level super admin check (reads /users/{uid}.platformRole)
+    // Platform-level super admin (reads /users/{uid}.platformRole).
+    // Defaults to false if the field is missing.
     function isSuperAdmin() {
       return isSignedIn() &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.platformRole == 'super_admin';
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('platformRole', 'user') == 'super_admin';
     }
 
-    // Org membership check
+    // Org membership — user has a member doc at /organizations/{orgId}/members/{uid}
     function isMember(orgId) {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid));
@@ -30,14 +32,9 @@ service cloud.firestore {
       return isMember(orgId) && memberRole(orgId) in roles;
     }
 
-    // Org status check — only approved orgs allow writes
+    // Org status check — defaults to 'approved' for legacy orgs without status field
     function isOrgApproved(orgId) {
-      return get(/databases/$(database)/documents/organizations/$(orgId)).data.status == 'approved';
-    }
-
-    // Combined: member of an approved org
-    function canAccess(orgId) {
-      return isMember(orgId) && isOrgApproved(orgId);
+      return get(/databases/$(database)/documents/organizations/$(orgId)).data.get('status', 'approved') == 'approved';
     }
 
     // Role shortcuts
@@ -58,23 +55,22 @@ service cloud.firestore {
     }
 
     // ============================================================
-    // USERS — each user can only read/write their own doc
-    // Super admins can read all users
+    // USERS
+    // - Users can read/write their own profile doc
+    // - Super admins can read/write any profile (used to set platformRole, list users)
     // ============================================================
     match /users/{userId} {
       allow read: if isSignedIn() && (request.auth.uid == userId || isSuperAdmin());
       allow create: if isSignedIn() && request.auth.uid == userId;
-      allow update: if isSignedIn() && (
-        request.auth.uid == userId ||
-        isSuperAdmin()
-      );
-      // platformRole field is protected: only super admins can set it
-      // (enforced by: regular users can update their own doc but the
-      //  frontend never writes platformRole — backend-only field)
+      allow update: if isSignedIn() && (request.auth.uid == userId || isSuperAdmin());
+      allow delete: if isSuperAdmin();
     }
 
     // ============================================================
-    // INVITATIONS — root-level collection
+    // INVITATIONS (root-level collection)
+    // - Invited user (by email match) can read + update their own invitation
+    // - Org admins/owners can create, read, update, delete invitations for their org
+    // - Super admins can do anything
     // ============================================================
     match /invitations/{invitationId} {
       allow read: if isSignedIn() && (
@@ -82,7 +78,10 @@ service cloud.firestore {
         isAdminOrAbove(resource.data.orgId) ||
         isSuperAdmin()
       );
-      allow create: if isSignedIn() && isAdminOrAbove(request.resource.data.orgId);
+      allow create: if isSignedIn() && (
+        isAdminOrAbove(request.resource.data.orgId) ||
+        isSuperAdmin()
+      );
       allow update: if isSignedIn() && (
         resource.data.email == request.auth.token.email ||
         isAdminOrAbove(resource.data.orgId) ||
@@ -98,121 +97,125 @@ service cloud.firestore {
     // ORGANIZATIONS
     // ============================================================
     match /organizations/{orgId} {
-      // Any member can read their org; super admins can read all
+      // Members can read their org; super admins can read all
       allow read: if isMember(orgId) || isSuperAdmin();
 
-      // Anyone signed in can create (status will be 'pending')
-      allow create: if isSignedIn();
+      // Any signed-in user can create (it'll be in 'pending' status)
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.createdBy;
 
-      // Owner can update their org; super admins can update any (for approval)
+      // Owner can update their org; super admins can update any (for approval workflow)
       allow update: if isOwner(orgId) || isSuperAdmin();
 
-      // Only super admins can delete orgs
+      // Only super admins can delete an org
       allow delete: if isSuperAdmin();
 
-      // ---- Members ----
+      // ============================================
+      // Members subcollection
+      // ============================================
       match /members/{memberId} {
         allow read: if isMember(orgId) || isSuperAdmin();
+        // User can add themselves (when accepting an invitation OR creating an org)
+        // Admins can add anyone
         allow create: if isSignedIn() && (
           request.auth.uid == memberId ||
           isAdminOrAbove(orgId) ||
           isSuperAdmin()
         );
         allow update: if isAdminOrAbove(orgId) || isSuperAdmin();
+        // Admins can remove members; users can remove themselves
         allow delete: if isAdminOrAbove(orgId) || request.auth.uid == memberId || isSuperAdmin();
       }
 
-      // ---- Settings ----
+      // ============================================
+      // Settings subcollection — owner-only
+      // ============================================
       match /settings/{settingId} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isOwner(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Chart of Accounts ----
+      // ============================================
+      // Accounting (Accountant+ can write)
+      // ============================================
       match /accounts/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isAccountantOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Journal Entries ----
       match /journalEntries/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isAccountantOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Customers ----
+      // ============================================
+      // Sales (Clerk+ can write)
+      // ============================================
       match /customers/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isClerkOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Sales Invoices ----
       match /salesInvoices/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isClerkOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Quotes ----
       match /quotes/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isClerkOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Credit Notes ----
       match /creditNotes/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isClerkOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Receipts ----
       match /receipts/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isClerkOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Suppliers ----
+      // ============================================
+      // Purchases (Clerk+ can write)
+      // ============================================
       match /suppliers/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isClerkOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Purchase Invoices (Bills) ----
       match /purchaseInvoices/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isClerkOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Purchase Orders ----
       match /purchaseOrders/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isClerkOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Debit Notes ----
       match /debitNotes/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isClerkOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Payments ----
       match /payments/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isClerkOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Bank Accounts ----
+      // ============================================
+      // Banking (Accountant+ can write)
+      // ============================================
       match /bankAccounts/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isAccountantOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Bank Transactions ----
       match /bankTransactions/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isAccountantOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
-      // ---- Reconciliations ----
       match /reconciliations/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isAccountantOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();

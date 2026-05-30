@@ -8,6 +8,8 @@
           <span class="text-h6 font-weight-bold">Vent</span>
         </div>
         <v-spacer />
+        <v-btn variant="text" class="text-none mr-1 d-none d-sm-inline-flex" href="#features">Features</v-btn>
+        <v-btn variant="text" class="text-none mr-2 d-none d-sm-inline-flex" href="#pricing">Pricing</v-btn>
         <v-btn variant="text" class="text-none mr-2" :to="{ name: 'login' }">Sign In</v-btn>
         <v-btn color="primary" class="text-none" :to="{ name: 'register' }">Get Started</v-btn>
       </div>
@@ -115,6 +117,102 @@
       </div>
     </section>
 
+    <!-- Pricing -->
+    <section id="pricing" class="pricing-section">
+      <div class="landing-container">
+        <div class="text-center mb-8">
+          <v-chip color="primary" variant="tonal" size="small" class="mb-3">Pricing</v-chip>
+          <h2 class="text-h4 font-weight-bold mb-2">Simple, transparent pricing</h2>
+          <p class="text-body-1 text-medium-emphasis" style="max-width: 580px; margin: 0 auto">
+            Start with a 15-day free trial on Standard. No credit card required. Cancel anytime.
+          </p>
+        </div>
+
+        <div class="d-flex justify-center mb-8">
+          <v-btn-toggle
+            v-model="billingCycle"
+            mandatory
+            density="comfortable"
+            color="primary"
+            variant="outlined"
+            rounded="lg"
+          >
+            <v-btn value="monthly">Monthly</v-btn>
+            <v-btn value="annual">
+              Annual
+              <v-chip color="success" size="x-small" class="ml-2">2 months free</v-chip>
+            </v-btn>
+          </v-btn-toggle>
+        </div>
+
+        <v-row>
+          <v-col v-for="plan in plans" :key="plan.id" cols="12" md="4">
+            <v-card
+              class="pricing-card h-100 d-flex flex-column"
+              :class="{ 'pricing-card-recommended': plan.recommended }"
+              :elevation="plan.recommended ? 8 : 0"
+              variant="flat"
+              border
+              rounded="xl"
+            >
+              <v-card-text class="pa-6 flex-grow-1 d-flex flex-column">
+                <div v-if="plan.recommended" class="mb-2">
+                  <v-chip color="primary" size="small" variant="flat">Most popular</v-chip>
+                </div>
+                <div class="text-h5 font-weight-bold">{{ plan.name }}</div>
+                <div class="text-body-2 text-medium-emphasis mb-4">{{ plan.tagline }}</div>
+
+                <div class="d-flex align-baseline mb-1">
+                  <span class="text-h3 font-weight-bold">
+                    GH₵{{ priceFor(plan).toLocaleString() }}
+                  </span>
+                  <span class="text-body-2 text-medium-emphasis ml-2">
+                    / {{ billingCycle === 'annual' ? 'year' : 'month' }}
+                  </span>
+                </div>
+                <div v-if="billingCycle === 'annual'" class="text-caption text-success mb-4">
+                  Save GH₵{{ (plan.monthlyPrice * 12 - plan.annualPrice).toLocaleString() }} / year
+                </div>
+                <div v-else class="mb-4" style="height: 16px" />
+
+                <v-list density="compact" class="bg-transparent flex-grow-1 pa-0">
+                  <v-list-item
+                    v-for="f in plan.features"
+                    :key="f"
+                    class="px-0"
+                    min-height="34"
+                  >
+                    <template #prepend>
+                      <v-icon size="18" color="success" class="mr-2">mdi-check-circle</v-icon>
+                    </template>
+                    <v-list-item-title class="text-body-2">{{ f }}</v-list-item-title>
+                  </v-list-item>
+                </v-list>
+
+                <v-btn
+                  :color="plan.recommended ? 'primary' : undefined"
+                  :variant="plan.recommended ? 'flat' : 'outlined'"
+                  size="large"
+                  block
+                  class="text-none mt-4"
+                  rounded="lg"
+                  :to="{ name: 'register' }"
+                >
+                  Start 15-day trial
+                </v-btn>
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
+
+        <div class="text-center mt-8">
+          <p class="text-body-2 text-medium-emphasis">
+            All plans include Mobile Money, card payments, and email support. Prices in GHS, exclusive of VAT.
+          </p>
+        </div>
+      </div>
+    </section>
+
     <!-- CTA -->
     <section class="cta-section">
       <div class="landing-container text-center">
@@ -144,7 +242,18 @@
 </template>
 
 <script setup lang="ts">
+import { ref, computed } from 'vue'
+import { PLANS, PLAN_ORDER } from '@/config/plans'
+import type { BillingCycle, Plan } from '@/types/subscription'
+
 const year = new Date().getFullYear()
+
+const billingCycle = ref<BillingCycle>('monthly')
+const plans = computed(() => PLAN_ORDER.map((id) => PLANS[id]))
+
+function priceFor(plan: Plan): number {
+  return billingCycle.value === 'annual' ? plan.annualPrice : plan.monthlyPrice
+}
 
 const features = [
   {
@@ -276,6 +385,24 @@ const steps = [
 .how-section {
   padding: 80px 0;
   background: #F8FAFC;
+}
+
+.pricing-section {
+  padding: 80px 0;
+  background: #FFFFFF;
+}
+
+.pricing-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.pricing-card:hover {
+  transform: translateY(-4px);
+}
+
+.pricing-card-recommended {
+  border-color: rgb(var(--v-theme-primary)) !important;
+  border-width: 2px !important;
 }
 
 .cta-section {

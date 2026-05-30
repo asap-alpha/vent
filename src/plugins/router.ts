@@ -177,13 +177,13 @@ const router = createRouter({
       path: '/reports/trial-balance',
       name: 'trial-balance',
       component: () => import('@/modules/reports/TrialBalancePage.vue'),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresFeature: 'advancedReports', featureLabel: 'Trial Balance' },
     },
     {
       path: '/reports/aging',
       name: 'aging',
       component: () => import('@/modules/reports/AgingReportPage.vue'),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresFeature: 'advancedReports', featureLabel: 'Aging Report' },
     },
 
     // Settings
@@ -197,6 +197,12 @@ const router = createRouter({
       path: '/settings/users',
       name: 'users',
       component: () => import('@/modules/settings/UsersPage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/settings/billing',
+      name: 'billing',
+      component: () => import('@/modules/settings/BillingPage.vue'),
       meta: { requiresAuth: true },
     },
     {
@@ -253,6 +259,41 @@ router.beforeEach(async (to, from) => {
   // 4. Initialize app (org + all stores) — runs once per session
   if (authStore.user && to.meta.requiresAuth) {
     await initApp()
+  }
+
+  // 4b. Subscription gating
+  if (authStore.user && to.meta.requiresAuth && to.name !== 'billing' && to.name !== 'settings') {
+    const { useSubscriptionStore } = await import('@/stores/subscription')
+    const { useUpgradePromptStore } = await import('@/stores/upgradePrompt')
+    const { useFeatureGate } = await import('@/composables/useFeatureGate')
+    const subStore = useSubscriptionStore()
+
+    // Block all non-billing routes when subscription requires payment
+    if (subStore.requiresPayment) {
+      log.warn('Subscription required — redirecting to billing', { status: subStore.status, to: to.fullPath })
+      useUpgradePromptStore().open({
+        title: subStore.trialExpired ? 'Trial expired' : 'Subscription required',
+        message: 'Subscribe to a plan to continue using Vent.',
+        ctaLabel: 'View plans',
+      })
+      return { name: 'billing' }
+    }
+
+    // Plan-feature gating (boolean limits on routes)
+    const feature = to.meta.requiresFeature as keyof import('@/types/subscription').PlanLimits | undefined
+    if (feature) {
+      const gate = useFeatureGate()
+      if (!gate.hasFeature(feature)) {
+        const label = (to.meta.featureLabel as string) || (feature as string)
+        log.info('Feature locked — redirecting', { feature, to: to.fullPath })
+        try {
+          gate.requireFeature(feature, label)
+        } catch {
+          /* prompt opened by requireFeature */
+        }
+        return { name: from.name ? from.name : 'dashboard' }
+      }
+    }
   }
 
   // 5. Reset init state on logout
