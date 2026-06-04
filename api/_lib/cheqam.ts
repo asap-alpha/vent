@@ -47,7 +47,23 @@ export async function cheqamInitiate(body: CheqamInitiateBody): Promise<CheqamIn
     headers: { 'Content-Type': 'application/json', 'X-Vent-Api-Key': KEY! },
     body: JSON.stringify(body),
   })
-  const envelope = await res.json().catch(() => ({} as any))
+  // Read the raw body once so we can surface the real reason even when Cheqam
+  // replies with a non-JSON error (HTML, 401/403/404, empty) instead of the envelope.
+  const raw = await res.text()
+  let envelope: any = {}
+  try {
+    envelope = raw ? JSON.parse(raw) : {}
+  } catch {
+    // non-JSON response — leave envelope empty, raw is logged below
+  }
+  if (!res.ok || envelope?.Data?.Success !== true) {
+    // eslint-disable-next-line no-console
+    console.error('[cheqam/initiate] gateway rejected', {
+      url: url('/api/vent/payments/initiate'),
+      httpStatus: res.status,
+      body: raw.slice(0, 500),
+    })
+  }
   // Both success (200) and gateway failure (502) carry the envelope with Data.
   const data = (envelope?.Data ?? {}) as Partial<CheqamInitiateData>
   return {
@@ -57,7 +73,9 @@ export async function cheqamInitiate(body: CheqamInitiateBody): Promise<CheqamIn
     HubtelTransactionId: data.HubtelTransactionId ?? '',
     Status: data.Status ?? '',
     Message: data.Message ?? envelope?.Message ?? '',
-    ErrorMessage: data.ErrorMessage ?? '',
+    // When Cheqam returns no envelope (e.g. 401/403/404/HTML), expose the HTTP
+    // status so the failure isn't a contentless "Payment initiation failed".
+    ErrorMessage: data.ErrorMessage ?? (res.ok ? '' : `Cheqam gateway returned HTTP ${res.status}`),
   }
 }
 
