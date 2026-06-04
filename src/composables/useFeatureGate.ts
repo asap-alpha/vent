@@ -4,8 +4,10 @@ import { PLANS, PLAN_ORDER, getPlan } from '@/config/plans'
 import type { PlanId, PlanLimits } from '@/types/subscription'
 
 export class FeatureLockedError extends Error {
-  constructor(message: string, public requiredPlan?: PlanId) {
+  requiredPlan?: PlanId
+  constructor(message: string, requiredPlan?: PlanId) {
     super(message)
+    this.requiredPlan = requiredPlan
     this.name = 'FeatureLockedError'
   }
 }

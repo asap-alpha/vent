@@ -4,7 +4,7 @@ import { doc, onSnapshot, updateDoc, serverTimestamp, type Unsubscribe } from 'f
 import { db } from '@/plugins/firebase'
 import { useOrganizationStore } from './organization'
 import { logger } from '@/utils/logger'
-import { PLANS, planRank, TRIAL_DAYS, DEFAULT_TRIAL_PLAN } from '@/config/plans'
+import { PLANS, planRank, DEFAULT_TRIAL_PLAN } from '@/config/plans'
 import type { BillingCycle, OrgSubscription, PlanId, SubscriptionStatus } from '@/types/subscription'
 
 const log = logger('subscription')

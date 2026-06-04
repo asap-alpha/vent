@@ -126,7 +126,7 @@
               size="large"
               block
               class="mt-4"
-              :disabled="isCurrent(plan.id) || !canUpgrade(plan.id) || checkoutLoading"
+              :disabled="isCurrent(plan.id) || checkoutLoading"
               :loading="checkoutLoading && pendingPlan === plan.id"
               @click="onSelect(plan.id)"
             >
@@ -152,6 +152,77 @@
       </v-card-text>
     </v-card>
 
+    <!-- Mobile money payment dialog -->
+    <v-dialog v-model="payDialog" max-width="460">
+      <v-card>
+        <v-card-title class="text-h6 font-weight-bold">
+          {{ payActionLabel }}
+        </v-card-title>
+        <v-card-text>
+          <div class="d-flex align-baseline mb-4">
+            <span class="text-h5 font-weight-bold">GH₵{{ selectedAmount.toLocaleString() }}</span>
+            <span class="text-body-2 text-medium-emphasis ml-2">
+              / {{ selectedCycle === 'annual' ? 'year' : 'month' }}
+            </span>
+          </div>
+
+          <template v-if="payStep === 'form' || payStep === 'error'">
+            <v-select
+              v-model="channel"
+              :items="networks"
+              label="Mobile network"
+              variant="outlined"
+              density="comfortable"
+              class="mb-2"
+            />
+            <v-text-field
+              v-model="momo"
+              label="Mobile money number"
+              placeholder="0241234567"
+              variant="outlined"
+              density="comfortable"
+              inputmode="tel"
+            />
+            <v-alert v-if="payError" type="error" variant="tonal" density="compact" class="mt-1">
+              {{ payError }}
+            </v-alert>
+          </template>
+
+          <template v-else-if="payStep === 'awaiting'">
+            <div class="d-flex flex-column align-center text-center py-4">
+              <v-progress-circular indeterminate color="primary" size="48" class="mb-4" />
+              <div class="text-body-1">{{ awaitingMsg }}</div>
+              <div class="text-caption text-medium-emphasis mt-2">
+                You can close this window — your plan updates automatically once the payment is approved.
+              </div>
+            </div>
+          </template>
+
+          <template v-else-if="payStep === 'done'">
+            <div class="d-flex flex-column align-center text-center py-4">
+              <v-icon color="success" size="48" class="mb-3">mdi-check-circle</v-icon>
+              <div class="text-body-1 font-weight-medium">Payment successful</div>
+            </div>
+          </template>
+        </v-card-text>
+        <v-card-actions class="px-4 pb-4">
+          <v-spacer />
+          <v-btn variant="text" @click="payDialog = false">
+            {{ payStep === 'done' ? 'Close' : 'Cancel' }}
+          </v-btn>
+          <v-btn
+            v-if="payStep === 'form' || payStep === 'error'"
+            color="primary"
+            variant="flat"
+            :loading="checkoutLoading"
+            @click="confirmPay"
+          >
+            Pay GH₵{{ selectedAmount.toLocaleString() }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3500">
       {{ snackbar.message }}
     </v-snackbar>
@@ -168,7 +239,7 @@ import type { BillingCycle, PlanId } from '@/types/subscription'
 
 const subStore = useSubscriptionStore()
 const orgStore = useOrganizationStore()
-const { initiateCheckout } = usePayment()
+const { initiateCheckout, waitForPayment } = usePayment()
 
 const plans = computed(() => PLAN_ORDER.map((id) => PLANS[id]))
 const currentPlan = computed(() => subStore.plan)
@@ -184,6 +255,29 @@ watch(
 const checkoutLoading = ref(false)
 const pendingPlan = ref<PlanId | null>(null)
 const snackbar = ref({ show: false, message: '', color: 'success' })
+
+// Mobile-money payment dialog state.
+type PayStep = 'form' | 'awaiting' | 'done' | 'error'
+const payDialog = ref(false)
+const payStep = ref<PayStep>('form')
+const momo = ref('')
+const channel = ref<'mtn-gh' | 'vodafone-gh' | 'tigo-gh'>('mtn-gh')
+const payError = ref('')
+const awaitingMsg = ref('')
+
+const networks = [
+  { title: 'MTN Mobile Money', value: 'mtn-gh' },
+  { title: 'Telecel Cash (Vodafone)', value: 'vodafone-gh' },
+  { title: 'AirtelTigo Money', value: 'tigo-gh' },
+]
+
+// Mirrors the card's CTA so the dialog reads "Renew Standard" / "Subscribe to Pro" etc.
+const payActionLabel = computed(() => (pendingPlan.value ? buttonLabel(pendingPlan.value) : 'Subscribe'))
+const selectedAmount = computed(() => {
+  if (!pendingPlan.value) return 0
+  const p = PLANS[pendingPlan.value]
+  return selectedCycle.value === 'annual' ? p.annualPrice : p.monthlyPrice
+})
 
 const statusLabel = computed(() => {
   if (subStore.isTrialing) return 'Trial'
@@ -212,26 +306,37 @@ function priceFor(plan: typeof PLANS.starter) {
   return selectedCycle.value === 'annual' ? plan.annualPrice : plan.monthlyPrice
 }
 
+// Show the disabled "Current plan" pill only when this plan is genuinely active
+// on the selected cycle. An expired/canceled sub is NOT current, so its card
+// flips to a Renew CTA instead of locking the user out.
 function isCurrent(planId: PlanId): boolean {
   return (
     subStore.subscription?.plan === planId &&
-    !subStore.isTrialing &&
     subStore.status === 'active' &&
     subStore.subscription?.billingCycle === selectedCycle.value
   )
 }
 
-function canUpgrade(planId: PlanId): boolean {
-  if (subStore.isTrialing) return true
-  return subStore.canUpgradeTo(planId) || subStore.subscription?.plan === planId
-}
-
 function buttonLabel(planId: PlanId): string {
-  if (isCurrent(planId)) return 'Current plan'
-  if (subStore.isTrialing) return `Subscribe to ${PLANS[planId].name}`
-  if (subStore.canUpgradeTo(planId)) return 'Upgrade'
-  if (subStore.subscription?.plan === planId) return 'Switch billing cycle'
-  return 'Downgrade'
+  const name = PLANS[planId].name
+
+  // During a trial nothing has been paid yet — every plan is a subscribe action.
+  if (subStore.isTrialing) return `Subscribe to ${name}`
+
+  const isMyPlan = subStore.subscription?.plan === planId
+  if (isMyPlan) {
+    if (subStore.status === 'active') return 'Switch billing cycle'
+    // Lapsed: only call it a "Renew" if they actually paid before. New orgs are
+    // seeded onto the Standard trial (plan='standard', no paid period), so a
+    // first-time subscriber after the trial should read "Subscribe", not "Renew".
+    return subStore.subscription?.currentPeriodEnd ? `Renew ${name}` : `Subscribe to ${name}`
+  }
+
+  // A different plan: upgrade/switch while active, otherwise a fresh subscribe.
+  if (subStore.status === 'active') {
+    return subStore.canUpgradeTo(planId) ? `Upgrade to ${name}` : `Switch to ${name}`
+  }
+  return `Subscribe to ${name}`
 }
 
 function formatDate(d: Date | null | undefined): string {
@@ -239,24 +344,67 @@ function formatDate(d: Date | null | undefined): string {
   return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(d)
 }
 
-async function onSelect(planId: PlanId) {
+function onSelect(planId: PlanId) {
   if (!orgStore.orgId) return
-  checkoutLoading.value = true
   pendingPlan.value = planId
+  payStep.value = 'form'
+  payError.value = ''
+  momo.value = ''
+  payDialog.value = true
+}
+
+async function confirmPay() {
+  if (!orgStore.orgId || !pendingPlan.value) return
+  if (momo.value.replace(/\D/g, '').length < 9) {
+    payError.value = 'Enter a valid mobile money number.'
+    return
+  }
+  payError.value = ''
+  checkoutLoading.value = true
+  payStep.value = 'awaiting'
+  awaitingMsg.value = 'Sending payment prompt to your phone…'
+
   try {
     const res = await initiateCheckout({
       orgId: orgStore.orgId,
-      plan: planId,
+      plan: pendingPlan.value,
       cycle: selectedCycle.value,
+      customerMsisdn: momo.value.trim(),
+      channel: channel.value,
     })
-    snackbar.value = res.ok
-      ? { show: true, message: `Subscribed to ${PLANS[planId].name}`, color: 'success' }
-      : { show: true, message: res.message || 'Checkout failed', color: 'error' }
+
+    if (!res.ok || !res.clientReference) {
+      payStep.value = 'error'
+      payError.value = res.error || res.message || 'Could not start payment.'
+      return
+    }
+
+    awaitingMsg.value = 'Approve the prompt on your phone to complete payment…'
+    const final = await waitForPayment(res.clientReference, {
+      onTick: (s) => {
+        if (s === 'Pending') awaitingMsg.value = 'Waiting for you to approve the prompt…'
+      },
+    })
+
+    if (final.status === 'Paid') {
+      payStep.value = 'done'
+      snackbar.value = { show: true, message: `Subscribed to ${PLANS[pendingPlan.value].name}`, color: 'success' }
+      setTimeout(() => { payDialog.value = false }, 1200)
+    } else if (final.error === 'timeout') {
+      payStep.value = 'error'
+      payError.value = 'Payment is taking longer than expected. If you approved it, your plan will update automatically shortly.'
+    } else if (final.status === 'AmountMismatch') {
+      payStep.value = 'error'
+      payError.value = 'The amount paid did not match the plan price. Your subscription was not activated.'
+    } else {
+      payStep.value = 'error'
+      payError.value = 'Payment was not completed. Please try again.'
+    }
   } catch (e: any) {
-    snackbar.value = { show: true, message: e.message || 'Checkout failed', color: 'error' }
+    payStep.value = 'error'
+    payError.value = e.message || 'Checkout failed'
   } finally {
     checkoutLoading.value = false
-    pendingPlan.value = null
   }
 }
 
