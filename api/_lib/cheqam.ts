@@ -1,7 +1,9 @@
 // Server-to-server client for Cheqam's Vent payment gateway. Cheqam routes our
 // Hubtel calls because only its IP is whitelisted; we authenticate the machine
 // with a shared secret (X-Vent-Api-Key), never a user token. Cheqam responds in
-// PascalCase, wrapping initiate in an ApiResponse envelope.
+// camelCase, wrapping the result in an ApiResponse envelope ({ success, data }).
+// The Cheqam*Data interfaces below are our PascalCase internal contract — the
+// parsers normalise camelCase response fields into them.
 
 const BASE = process.env.CHEQAM_API_BASE_URL
 const KEY = process.env.CHEQAM_VENT_API_KEY
@@ -56,7 +58,10 @@ export async function cheqamInitiate(body: CheqamInitiateBody): Promise<CheqamIn
   } catch {
     // non-JSON response — leave envelope empty, raw is logged below
   }
-  if (!res.ok || envelope?.Data?.Success !== true) {
+  // Cheqam's live API responds in camelCase: { success, data: { success, transactionId,
+  // clientReference, hubtelTransactionId, status, message, errorMessage } }.
+  const data = (envelope?.data ?? {}) as any
+  if (!res.ok || data.success !== true) {
     // eslint-disable-next-line no-console
     console.error('[cheqam/initiate] gateway rejected', {
       url: url('/api/vent/payments/initiate'),
@@ -64,18 +69,16 @@ export async function cheqamInitiate(body: CheqamInitiateBody): Promise<CheqamIn
       body: raw.slice(0, 500),
     })
   }
-  // Both success (200) and gateway failure (502) carry the envelope with Data.
-  const data = (envelope?.Data ?? {}) as Partial<CheqamInitiateData>
   return {
-    Success: data.Success ?? false,
-    TransactionId: data.TransactionId ?? '',
-    ClientReference: data.ClientReference ?? '',
-    HubtelTransactionId: data.HubtelTransactionId ?? '',
-    Status: data.Status ?? '',
-    Message: data.Message ?? envelope?.Message ?? '',
-    // When Cheqam returns no envelope (e.g. 401/403/404/HTML), expose the HTTP
-    // status so the failure isn't a contentless "Payment initiation failed".
-    ErrorMessage: data.ErrorMessage ?? (res.ok ? '' : `Cheqam gateway returned HTTP ${res.status}`),
+    Success: data.success ?? false,
+    TransactionId: data.transactionId ?? '',
+    ClientReference: data.clientReference ?? '',
+    HubtelTransactionId: data.hubtelTransactionId ?? '',
+    Status: data.status ?? '',
+    Message: data.message ?? envelope?.message ?? '',
+    // Prefer Cheqam's own errorMessage; fall back to the HTTP status so the failure
+    // is never a contentless "Payment initiation failed".
+    ErrorMessage: data.errorMessage || (res.ok ? '' : `Cheqam gateway returned HTTP ${res.status}`),
   }
 }
 
@@ -105,6 +108,20 @@ export async function cheqamStatus(clientReference: string): Promise<CheqamStatu
     method: 'GET',
     headers: { 'X-Vent-Api-Key': KEY! },
   })
-  const data = await res.json().catch(() => ({} as any))
+  const envelope = await res.json().catch(() => ({} as any))
+  // Same camelCase shape as initiate; unwrap the envelope and normalise to the
+  // PascalCase contract the status route consumes.
+  const d = (envelope?.data ?? envelope ?? {}) as any
+  const data: Partial<CheqamStatusData> & { error?: string } = {
+    ClientReference: d.clientReference,
+    TransactionId: d.transactionId,
+    Status: d.status,
+    Amount: d.amount,
+    AmountAfterCharges: d.amountAfterCharges,
+    Currency: d.currency,
+    PaidAt: d.paidAt ?? null,
+    Source: d.source,
+    error: d.errorMessage ?? envelope?.message,
+  }
   return { httpOk: res.ok, httpStatus: res.status, data }
 }
