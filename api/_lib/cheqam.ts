@@ -61,6 +61,7 @@ export async function cheqamInitiate(body: CheqamInitiateBody): Promise<CheqamIn
   }
 }
 
+
 // Cheqam's PaymentStatusResponse (PascalCase), returned unwrapped.
 export interface CheqamStatusData {
   ClientReference: string
