@@ -2,6 +2,9 @@ import { createHandler } from '../_lib/handler'
 import { getDb } from '../_lib/firebase'
 import { cheqamInitiate } from '../_lib/cheqam'
 
+
+
+
 // Initiates a Vent subscription payment. The browser is authenticated by Firebase
 // (createHandler → req.uid); this route confirms the caller can manage the org's
 // billing, then calls Cheqam server-to-server with the shared API key. The actual
