@@ -94,6 +94,17 @@ service cloud.firestore {
     }
 
     // ============================================================
+    // DISCOUNTS (root-level collection)
+    // - Super admins manage (create/list/revoke) per-org subscription codes.
+    // - No one else reads them: codes are shared out of band and validated
+    //   server-side (Cheqam backend via the Vent Admin SDK, which bypasses rules),
+    //   and the backend also flips them to `used` after payment.
+    // ============================================================
+    match /discounts/{discountId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    // ============================================================
     // ORGANIZATIONS
     // ============================================================
     match /organizations/{orgId} {

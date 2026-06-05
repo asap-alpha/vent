@@ -1,5 +1,6 @@
 import { useSubscriptionStore } from '@/stores/subscription'
 import { useUpgradePromptStore } from '@/stores/upgradePrompt'
+import { useAuthStore } from '@/stores/auth'
 import { PLANS, PLAN_ORDER, getPlan } from '@/config/plans'
 import type { PlanId, PlanLimits } from '@/types/subscription'
 
@@ -46,9 +47,11 @@ function minPlanForLimit(feature: keyof PlanLimits, needed: number): PlanId | un
 export function useFeatureGate() {
   const subStore = useSubscriptionStore()
   const promptStore = useUpgradePromptStore()
+  const authStore = useAuthStore()
 
   /** Throws + opens upgrade prompt if subscription isn't active/trialing. */
   function requireActive(action = 'perform this action'): void {
+    if (authStore.isSuperAdmin) return
     if (subStore.isActive && !subStore.trialExpired) return
     promptStore.open({
       title: subStore.trialExpired ? 'Trial expired' : 'Subscription required',
@@ -63,6 +66,7 @@ export function useFeatureGate() {
     feature: keyof PlanLimits,
     featureLabel: string
   ): void {
+    if (authStore.isSuperAdmin) return
     requireActive(`use ${featureLabel}`)
     const plan = subStore.plan
     if (!plan) return
@@ -89,6 +93,7 @@ export function useFeatureGate() {
     current: number,
     label: string
   ): void {
+    if (authStore.isSuperAdmin) return
     requireActive(`add another ${label}`)
     const plan = subStore.plan
     if (!plan) return
@@ -112,6 +117,7 @@ export function useFeatureGate() {
   }
 
   function hasFeature(feature: keyof PlanLimits): boolean {
+    if (authStore.isSuperAdmin) return true
     if (!subStore.isActive || subStore.trialExpired) return false
     const plan = subStore.plan
     if (!plan) return false
@@ -120,6 +126,7 @@ export function useFeatureGate() {
   }
 
   function underLimit(feature: keyof PlanLimits, current: number): boolean {
+    if (authStore.isSuperAdmin) return true
     const plan = subStore.plan
     if (!plan) return false
     const v = plan.limits[feature]

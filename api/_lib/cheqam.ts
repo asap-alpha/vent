@@ -29,6 +29,8 @@ export interface CheqamInitiateBody {
   customerEmail?: string
   description?: string
   clientReference?: string
+  // Optional single-use discount code; validated + applied server-side.
+  discountCode?: string
 }
 
 // Cheqam's PaymentInitiateResponse (PascalCase), unwrapped from the envelope.
@@ -124,4 +126,28 @@ export async function cheqamStatus(clientReference: string): Promise<CheqamStatu
     error: d.errorMessage ?? envelope?.message,
   }
   return { httpOk: res.ok, httpStatus: res.status, data }
+}
+
+export interface CheqamDiscountResult {
+  valid: boolean
+  discountPercent: number
+  reason?: string
+}
+
+// Preview a discount code for an org before charging. The backend returns
+// { success, data: { valid, discountPercent, reason } } (camelCase envelope).
+export async function cheqamValidateDiscount(orgId: string, code: string): Promise<CheqamDiscountResult> {
+  assertConfig()
+  const res = await fetch(url('/api/vent/payments/validate-discount'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Vent-Api-Key': KEY! },
+    body: JSON.stringify({ orgId, code }),
+  })
+  const envelope = await res.json().catch(() => ({} as any))
+  const d = (envelope?.data ?? {}) as any
+  return {
+    valid: d.valid === true,
+    discountPercent: typeof d.discountPercent === 'number' ? d.discountPercent : 0,
+    reason: d.reason ?? envelope?.message,
+  }
 }

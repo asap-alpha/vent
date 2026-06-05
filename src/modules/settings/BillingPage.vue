@@ -160,10 +160,18 @@
         </v-card-title>
         <v-card-text>
           <div class="d-flex align-baseline mb-4">
-            <span class="text-h5 font-weight-bold">GH₵{{ selectedAmount.toLocaleString() }}</span>
+            <span
+              v-if="appliedPercent > 0"
+              class="text-body-1 text-medium-emphasis mr-2"
+              style="text-decoration: line-through"
+            >GH₵{{ selectedAmount.toLocaleString() }}</span>
+            <span class="text-h5 font-weight-bold">GH₵{{ payableAmount.toLocaleString() }}</span>
             <span class="text-body-2 text-medium-emphasis ml-2">
               / {{ selectedCycle === 'annual' ? 'year' : 'month' }}
             </span>
+            <v-chip v-if="appliedPercent > 0" color="success" size="x-small" class="ml-2">
+              {{ appliedPercent }}% off
+            </v-chip>
           </div>
 
           <template v-if="payStep === 'form' || payStep === 'error'">
@@ -183,7 +191,37 @@
               density="comfortable"
               inputmode="tel"
             />
-            <v-alert v-if="payError" type="error" variant="tonal" density="compact" class="mt-1">
+            <div class="d-flex align-start ga-2">
+              <v-text-field
+                v-model="discountCode"
+                label="Discount code (optional)"
+                variant="outlined"
+                density="comfortable"
+                hide-details
+                style="text-transform: uppercase"
+                :disabled="appliedPercent > 0"
+              />
+              <v-btn
+                v-if="appliedPercent > 0"
+                variant="text"
+                color="error"
+                height="56"
+                @click="clearDiscount"
+              >Remove</v-btn>
+              <v-btn
+                v-else
+                variant="tonal"
+                color="primary"
+                height="56"
+                :loading="validatingDiscount"
+                :disabled="!discountCode.trim()"
+                @click="applyDiscount"
+              >Apply</v-btn>
+            </div>
+            <div v-if="discountMessage" :class="appliedPercent > 0 ? 'text-success' : 'text-error'" class="text-caption mt-1">
+              {{ discountMessage }}
+            </div>
+            <v-alert v-if="payError" type="error" variant="tonal" density="compact" class="mt-2">
               {{ payError }}
             </v-alert>
           </template>
@@ -217,7 +255,7 @@
             :loading="checkoutLoading"
             @click="confirmPay"
           >
-            Pay GH₵{{ selectedAmount.toLocaleString() }}
+            Pay GH₵{{ payableAmount.toLocaleString() }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -239,7 +277,7 @@ import type { BillingCycle, PlanId } from '@/types/subscription'
 
 const subStore = useSubscriptionStore()
 const orgStore = useOrganizationStore()
-const { initiateCheckout, waitForPayment } = usePayment()
+const { initiateCheckout, validateDiscount, waitForPayment } = usePayment()
 
 const plans = computed(() => PLAN_ORDER.map((id) => PLANS[id]))
 const currentPlan = computed(() => subStore.plan)
@@ -265,6 +303,12 @@ const channel = ref<'mtn-gh' | 'vodafone-gh' | 'tigo-gh'>('mtn-gh')
 const payError = ref('')
 const awaitingMsg = ref('')
 
+// Discount code state. `appliedPercent` > 0 once a code validates successfully.
+const discountCode = ref('')
+const validatingDiscount = ref(false)
+const appliedPercent = ref(0)
+const discountMessage = ref('')
+
 const networks = [
   { title: 'MTN Mobile Money', value: 'mtn-gh' },
   { title: 'Telecel Cash (Vodafone)', value: 'vodafone-gh' },
@@ -277,6 +321,13 @@ const selectedAmount = computed(() => {
   if (!pendingPlan.value) return 0
   const p = PLANS[pendingPlan.value]
   return selectedCycle.value === 'annual' ? p.annualPrice : p.monthlyPrice
+})
+
+// What the customer actually pays after any applied discount. The server
+// recomputes this authoritatively at checkout; this is the display figure.
+const payableAmount = computed(() => {
+  if (appliedPercent.value <= 0) return selectedAmount.value
+  return Math.round(selectedAmount.value * (1 - appliedPercent.value / 100) * 100) / 100
 })
 
 const statusLabel = computed(() => {
@@ -350,7 +401,35 @@ function onSelect(planId: PlanId) {
   payStep.value = 'form'
   payError.value = ''
   momo.value = ''
+  clearDiscount()
   payDialog.value = true
+}
+
+async function applyDiscount() {
+  if (!orgStore.orgId || !discountCode.value.trim()) return
+  validatingDiscount.value = true
+  discountMessage.value = ''
+  try {
+    const info = await validateDiscount(orgStore.orgId, discountCode.value.trim().toUpperCase())
+    if (info.valid && info.discountPercent > 0) {
+      appliedPercent.value = info.discountPercent
+      discountMessage.value = `${info.discountPercent}% discount applied.`
+    } else {
+      appliedPercent.value = 0
+      discountMessage.value = info.reason || 'That code is not valid.'
+    }
+  } catch (e: any) {
+    appliedPercent.value = 0
+    discountMessage.value = e?.message || 'Could not validate code.'
+  } finally {
+    validatingDiscount.value = false
+  }
+}
+
+function clearDiscount() {
+  discountCode.value = ''
+  appliedPercent.value = 0
+  discountMessage.value = ''
 }
 
 async function confirmPay() {
@@ -371,6 +450,9 @@ async function confirmPay() {
       cycle: selectedCycle.value,
       customerMsisdn: momo.value.trim(),
       channel: channel.value,
+      // Only send a code that validated — a still-typed/invalid code would
+      // otherwise reject the whole checkout server-side.
+      discountCode: appliedPercent.value > 0 ? discountCode.value.trim().toUpperCase() : undefined,
     })
 
     if (!res.ok || !res.clientReference) {

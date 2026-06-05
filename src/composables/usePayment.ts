@@ -13,6 +13,15 @@ export interface CheckoutRequest {
   channel: string // mtn-gh | vodafone-gh | tigo-gh
   customerName?: string
   customerEmail?: string
+  // Optional single-use discount code; validated + applied server-side.
+  discountCode?: string
+}
+
+export interface DiscountInfo {
+  ok: boolean
+  valid: boolean
+  discountPercent: number
+  reason?: string | null
 }
 
 export interface CheckoutResponse {
@@ -67,7 +76,14 @@ export function usePayment() {
       channel: req.channel,
       customerName: req.customerName ?? user?.displayName ?? '',
       customerEmail: req.customerEmail ?? user?.email ?? '',
+      discountCode: req.discountCode || undefined,
     })
+  }
+
+  /** Preview a discount code for an org before charging. Display-only — the
+   * discounted price is recomputed authoritatively at checkout. */
+  async function validateDiscount(orgId: string, code: string): Promise<DiscountInfo> {
+    return await authedPost<DiscountInfo>('/api/billing/validate-discount', { orgId, code })
   }
 
   async function checkStatus(clientReference: string): Promise<StatusResponse> {
@@ -104,5 +120,5 @@ export function usePayment() {
     return { ok: false, status: last.status || 'Pending', error: 'timeout' }
   }
 
-  return { initiateCheckout, checkStatus, waitForPayment }
+  return { initiateCheckout, validateDiscount, checkStatus, waitForPayment }
 }

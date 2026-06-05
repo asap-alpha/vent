@@ -261,8 +261,9 @@ router.beforeEach(async (to, from) => {
     await initApp()
   }
 
-  // 4b. Subscription gating
-  if (authStore.user && to.meta.requiresAuth && to.name !== 'billing' && to.name !== 'settings') {
+  // 4b. Subscription gating — super admins are exempt from all plan gating
+  // (no expiry/payment block, no per-plan feature locks).
+  if (authStore.user && to.meta.requiresAuth && to.name !== 'billing' && to.name !== 'settings' && !authStore.isSuperAdmin) {
     const { useSubscriptionStore } = await import('@/stores/subscription')
     const { useUpgradePromptStore } = await import('@/stores/upgradePrompt')
     const { useFeatureGate } = await import('@/composables/useFeatureGate')

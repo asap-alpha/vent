@@ -121,6 +121,8 @@
           <v-btn v-if="item.status === 'pending'" icon="mdi-check" size="x-small" variant="text" color="success" title="Approve" @click.stop="approveOrg(item.id)" />
           <v-btn v-if="item.status === 'approved'" icon="mdi-pause-circle-outline" size="x-small" variant="text" color="warning" title="Suspend" @click.stop="suspendOrg(item.id)" />
           <v-btn v-if="item.status === 'suspended'" icon="mdi-play-circle-outline" size="x-small" variant="text" color="success" title="Re-activate" @click.stop="approveOrg(item.id)" />
+          <v-btn icon="mdi-timer-plus-outline" size="x-small" variant="text" color="primary" title="Extend trial" @click.stop="openExtendDialog(item)" />
+          <v-btn icon="mdi-sale" size="x-small" variant="text" color="primary" title="Discount codes" @click.stop="openDiscountsDialog(item)" />
           <v-btn icon="mdi-eye" size="x-small" variant="text" @click.stop="viewOrg(item)" />
           <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click.stop="confirmDeleteOrg(item)" />
         </template>
@@ -260,6 +262,12 @@
     </v-dialog>
 
     <ConfirmDialog ref="confirmRef" title="Delete Organization" message="This will permanently delete this organization and all its data. This cannot be undone." confirm-text="Delete" />
+
+    <!-- Extend Trial Dialog -->
+    <ExtendTrialDialog v-model="extendDialog" :org="extendingOrg" />
+
+    <!-- Discounts Dialog -->
+    <DiscountsDialog v-model="discountsDialog" :org="discountsOrg" />
   </div>
 </template>
 
@@ -270,6 +278,8 @@ import { formatDate } from '@/utils/date'
 import { roleLabel, roleColor } from '@/utils/permissions'
 import PageHeader from '@/components/common/PageHeader.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ExtendTrialDialog from './ExtendTrialDialog.vue'
+import DiscountsDialog from './DiscountsDialog.vue'
 
 const adminStore = useAdminStore()
 
@@ -360,6 +370,22 @@ async function doReject() {
 
 function orgStatusColor(status: string): string {
   return { pending: 'warning', approved: 'success', rejected: 'error', suspended: 'grey' }[status] || 'grey'
+}
+
+// Extend trial
+const extendDialog = ref(false)
+const extendingOrg = ref<AdminOrg | null>(null)
+function openExtendDialog(org: AdminOrg) {
+  extendingOrg.value = org
+  extendDialog.value = true
+}
+
+// Discount codes
+const discountsDialog = ref(false)
+const discountsOrg = ref<AdminOrg | null>(null)
+function openDiscountsDialog(org: AdminOrg) {
+  discountsOrg.value = org
+  discountsDialog.value = true
 }
 
 const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null)

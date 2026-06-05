@@ -20,6 +20,7 @@ interface Body {
   customerName?: string
   customerEmail?: string
   clientReference?: string
+  discountCode?: string
 }
 
 const VALID_PLANS = ['starter', 'standard', 'pro']
@@ -27,7 +28,7 @@ const VALID_CYCLES = ['monthly', 'annual']
 const BILLING_ROLES = ['owner', 'admin']
 
 export default createHandler<Body>(async (req, res) => {
-  const { orgId, planId, billingCycle, customerMsisdn, channel, customerName, customerEmail, clientReference } = req.body
+  const { orgId, planId, billingCycle, customerMsisdn, channel, customerName, customerEmail, clientReference, discountCode } = req.body
 
   if (!orgId || !planId || !billingCycle || !customerMsisdn || !channel) {
     res.status(400).json({ error: 'orgId, planId, billingCycle, customerMsisdn and channel are required' })
@@ -66,6 +67,7 @@ export default createHandler<Body>(async (req, res) => {
     customerName,
     customerEmail,
     clientReference,
+    discountCode,
   })
 
   if (!result.Success) {

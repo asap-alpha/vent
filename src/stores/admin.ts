@@ -46,6 +46,12 @@ export const useAdminStore = defineStore('admin', () => {
           createdAt: data.createdAt?.toDate?.() || new Date(),
           reviewedBy: data.reviewedBy,
           reviewedAt: data.reviewedAt?.toDate?.() || undefined,
+          // Subscription fields — needed by the Extend Trial dialog.
+          plan: data.plan,
+          subscriptionStatus: data.subscriptionStatus,
+          billingCycle: data.billingCycle,
+          trialEndsAt: data.trialEndsAt?.toDate?.() || null,
+          currentPeriodEnd: data.currentPeriodEnd?.toDate?.() || null,
           memberCount: memberSnap.data().count,
           collections: {},
         })
@@ -161,6 +167,31 @@ export const useAdminStore = defineStore('admin', () => {
     organizations.value = organizations.value.filter((o) => o.id !== orgId)
   }
 
+  /**
+   * Grant an organization more time by pushing out its trial expiry. Super-admin
+   * only. Adds `days` to the later of (current expiry, now) so extending a still-
+   * valid trial stacks, while reviving an expired one starts from today. The org
+   * is set back to `trialing` so the new date actually unblocks access.
+   */
+  async function extendExpiry(orgId: string, days: number): Promise<Date> {
+    log.info('Extending expiry', { orgId, days })
+    const org = organizations.value.find((o) => o.id === orgId)
+    const current = org?.trialEndsAt ? new Date(org.trialEndsAt) : null
+    const base = current && current.getTime() > Date.now() ? current : new Date()
+    const newExpiry = new Date(base)
+    newExpiry.setDate(newExpiry.getDate() + days)
+
+    await updateDoc(doc(db, 'organizations', orgId), {
+      trialEndsAt: newExpiry,
+      subscriptionStatus: 'trialing',
+    })
+    if (org) {
+      org.trialEndsAt = newExpiry
+      org.subscriptionStatus = 'trialing'
+    }
+    return newExpiry
+  }
+
   async function updateUserPlatformRole(uid: string, platformRole: string) {
     log.info('Updating platform role', { uid, platformRole })
     await updateDoc(doc(db, 'users', uid), { platformRole })
@@ -171,6 +202,6 @@ export const useAdminStore = defineStore('admin', () => {
   return {
     organizations, users, loading, selectedOrg, selectedOrgMembers,
     fetchAllOrganizations, fetchAllUsers, fetchOrgDetails,
-    updateOrgStatus, deleteOrganization, updateUserPlatformRole,
+    updateOrgStatus, deleteOrganization, extendExpiry, updateUserPlatformRole,
   }
 })
