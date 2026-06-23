@@ -57,7 +57,9 @@ import ConnectionStatus from '@/components/layout/ConnectionStatus.vue'
 import { useOrganizationStore } from '@/stores/organization'
 import { subscribeAll } from '@/composables/useAppInit'
 import { useCreateOrg } from '@/composables/useCreateOrg'
+import { useToast } from '@/composables/useToast'
 
+const toast = useToast()
 const drawer = ref(true)
 
 // ---- Create Org Dialog ----
@@ -89,11 +91,18 @@ async function createOrg() {
   const { valid } = await orgFormRef.value.validate()
   if (!valid) return
   creatingOrg.value = true
+  const name = orgForm.value.name
   try {
-    await orgStore.createOrganization(orgForm.value.name, orgForm.value.currency, orgForm.value.fiscalYearStart)
+    const newOrgId = await orgStore.createOrganization(name, orgForm.value.currency, orgForm.value.fiscalYearStart)
     createOrgDialog.showDialog.value = false
     orgForm.value = { name: '', currency: 'GHS', fiscalYearStart: 1 }
+    // Switch into the new org (createOrganization → fetchOrganizations re-selects the
+    // oldest approved org, so we override to land on what was just created).
+    await orgStore.setCurrentOrg(newOrgId)
     subscribeAll()
+    toast.success(`Organization "${name}" created — submitted for review.`)
+  } catch (e: any) {
+    toast.error(e?.message || 'Could not create organization')
   } finally {
     creatingOrg.value = false
   }

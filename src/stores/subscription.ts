@@ -23,6 +23,12 @@ function toDate(v: any): Date | null {
 export const useSubscriptionStore = defineStore('subscription', () => {
   const subscription = ref<OrgSubscription | null>(null)
   const loading = ref(false)
+  // `loaded` flips true once the first org snapshot arrives (exists or not). Until
+  // then we must NOT assume 'expired' — that would bounce a perfectly valid user to
+  // billing during the initial load race. Gates wait on whenLoaded() before deciding.
+  const loaded = ref(false)
+  let resolveLoaded: () => void = () => {}
+  let loadedPromise: Promise<void> = Promise.resolve()
   let unsub: Unsubscribe | null = null
 
   const plan = computed(() => (subscription.value ? PLANS[subscription.value.plan] : null))
@@ -44,10 +50,18 @@ export const useSubscriptionStore = defineStore('subscription', () => {
   )
 
   const requiresPayment = computed(() => {
+    // Don't block before the subscription has loaded — `status` defaults to
+    // 'expired' when null, which would be a false positive during the load race.
+    if (!loaded.value) return false
     if (status.value === 'past_due' || status.value === 'canceled' || status.value === 'expired') return true
     if (trialExpired.value) return true
     return false
   })
+
+  /** Resolves once the first org snapshot has been processed. */
+  function whenLoaded(): Promise<void> {
+    return loadedPromise
+  }
 
   function canAccessFeature(feature: keyof typeof PLANS.starter.limits): boolean {
     if (!plan.value || !isActive.value) return false
@@ -70,11 +84,21 @@ export const useSubscriptionStore = defineStore('subscription', () => {
   function subscribe(orgId: string) {
     unsubscribe()
     log.info('Subscribing to org subscription', { orgId })
+    // Fresh load: nothing known yet until the first snapshot resolves the promise.
+    loaded.value = false
+    loadedPromise = new Promise<void>((resolve) => { resolveLoaded = resolve })
+    const markLoaded = () => {
+      if (!loaded.value) {
+        loaded.value = true
+        resolveLoaded()
+      }
+    }
     unsub = onSnapshot(
       doc(db, 'organizations', orgId),
       (snap) => {
         if (!snap.exists()) {
           subscription.value = null
+          markLoaded()
           return
         }
         const data = snap.data()
@@ -87,6 +111,7 @@ export const useSubscriptionStore = defineStore('subscription', () => {
           currentPeriodEnd: toDate(data.currentPeriodEnd),
           canceledAt: toDate(data.canceledAt),
         }
+        markLoaded()
         log.debug('Subscription snapshot', {
           plan: subscription.value.plan,
           status: subscription.value.status,
@@ -95,6 +120,9 @@ export const useSubscriptionStore = defineStore('subscription', () => {
       },
       (err) => {
         log.error('Subscription snapshot error', { code: err.code, message: err.message })
+        // Fail open on read error so a transient Firestore hiccup doesn't wall the
+        // user behind a billing redirect.
+        markLoaded()
       }
     )
   }
@@ -138,6 +166,8 @@ export const useSubscriptionStore = defineStore('subscription', () => {
   return {
     subscription,
     loading,
+    loaded,
+    whenLoaded,
     plan,
     status,
     isTrialing,

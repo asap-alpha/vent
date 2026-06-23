@@ -269,6 +269,13 @@ router.beforeEach(async (to, from) => {
     const { useFeatureGate } = await import('@/composables/useFeatureGate')
     const subStore = useSubscriptionStore()
 
+    // Wait for the first org snapshot so we gate on real data, not the unloaded
+    // 'expired' default. Time-boxed so a stalled read fails open rather than hangs.
+    await Promise.race([
+      subStore.whenLoaded(),
+      new Promise((resolve) => setTimeout(resolve, 4000)),
+    ])
+
     // Block all non-billing routes when subscription requires payment
     if (subStore.requiresPayment) {
       log.warn('Subscription required — redirecting to billing', { status: subStore.status, to: to.fullPath })
