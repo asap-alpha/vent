@@ -325,9 +325,11 @@ import { roleLabel, roleColor } from '@/utils/permissions'
 import { startOfMonth, format } from 'date-fns'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { useCreateOrg } from '@/composables/useCreateOrg'
+import { useToast } from '@/composables/useToast'
 
 const authStore = useAuthStore()
 const orgStore = useOrganizationStore()
+const toast = useToast()
 const transactionsStore = useTransactionsStore()
 const invoicesStore = useInvoicesStore()
 const billsStore = useBillsStore()
@@ -395,8 +397,13 @@ async function createOrg() {
   const { valid } = await orgFormRef.value.validate()
   if (!valid) return
   creatingOrg.value = true
+  const name = orgForm.value.name
   try {
-    await orgStore.createOrganization(orgForm.value.name, orgForm.value.currency, orgForm.value.fiscalYearStart)
+    const newOrgId = await orgStore.createOrganization(name, orgForm.value.currency, orgForm.value.fiscalYearStart)
+    await orgStore.setCurrentOrg(newOrgId)
+    toast.success(`Organization "${name}" created — submitted for review.`)
+  } catch (e: any) {
+    toast.error(e?.message || 'Could not create organization')
   } finally {
     creatingOrg.value = false
   }

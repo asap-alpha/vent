@@ -344,13 +344,15 @@ export const useOrganizationStore = defineStore('organization', () => {
       throw new Error('This invitation is for a different email address')
     }
 
-    // Add as member
+    // Add as member. invitationId is required by Firestore rules to prove this
+    // self-add matches a real pending invitation (org + role), not a forged write.
     await setDoc(doc(db, 'organizations', inv.orgId, 'members', authStore.user.uid), {
       userId: authStore.user.uid,
       role: inv.role,
       email: authStore.user.email,
       displayName: authStore.profile?.displayName || '',
       invitedBy: inv.invitedBy,
+      invitationId,
       joinedAt: serverTimestamp(),
     })
 

@@ -54,6 +54,35 @@ service cloud.firestore {
       return hasRole(orgId, ['owner', 'admin', 'accountant', 'clerk']);
     }
 
+    // The user who created the org (used to authorize the creator's owner member doc).
+    function isOrgCreator(orgId) {
+      return get(/databases/$(database)/documents/organizations/$(orgId)).data.createdBy == request.auth.uid;
+    }
+
+    // A self-service member add is only legitimate when it matches a real pending
+    // invitation for THIS org and the SAME role. The member doc must carry the
+    // invitationId. Invitation ids are random/secret (delivered by email), so this
+    // closes the "write yourself in as owner" hole.
+    function hasMatchingInvite(orgId) {
+      let invId = request.resource.data.get('invitationId', '');
+      return invId != '' &&
+        exists(/databases/$(database)/documents/invitations/$(invId)) &&
+        get(/databases/$(database)/documents/invitations/$(invId)).data.orgId == orgId &&
+        get(/databases/$(database)/documents/invitations/$(invId)).data.role == request.resource.data.role &&
+        get(/databases/$(database)/documents/invitations/$(invId)).data.status == 'pending';
+    }
+
+    // Owners may edit only business fields, and may cancel their own subscription.
+    // Approval (`status`), plan, trial and billing-period fields are platform-managed
+    // (super admin, or the payment backend via the Admin SDK which bypasses rules) so
+    // an owner can't self-approve their org or grant themselves a plan/trial.
+    function ownerOrgEdit(orgId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return isOwner(orgId) &&
+        changed.hasOnly(['name', 'currency', 'fiscalYearStart', 'subscriptionStatus', 'canceledAt']) &&
+        (!changed.hasAny(['subscriptionStatus']) || request.resource.data.subscriptionStatus == 'canceled');
+    }
+
     // ============================================================
     // USERS
     // - Users can read/write their own profile doc
@@ -114,8 +143,9 @@ service cloud.firestore {
       // Any signed-in user can create (it'll be in 'pending' status)
       allow create: if isSignedIn() && request.auth.uid == request.resource.data.createdBy;
 
-      // Owner can update their org; super admins can update any (for approval workflow)
-      allow update: if isOwner(orgId) || isSuperAdmin();
+      // Super admins can update any org (approval, plan, trial). Owners are limited
+      // to business fields + cancelling their own subscription — see ownerOrgEdit.
+      allow update: if isSuperAdmin() || ownerOrgEdit(orgId);
 
       // Only super admins can delete an org
       allow delete: if isSuperAdmin();
@@ -125,16 +155,22 @@ service cloud.firestore {
       // ============================================
       match /members/{memberId} {
         allow read: if isMember(orgId) || isSuperAdmin();
-        // User can add themselves (when accepting an invitation OR creating an org)
-        // Admins can add anyone
-        allow create: if isSignedIn() && (
-          request.auth.uid == memberId ||
-          isAdminOrAbove(orgId) ||
-          isSuperAdmin()
-        );
-        allow update: if isAdminOrAbove(orgId) || isSuperAdmin();
-        // Admins can remove members; users can remove themselves
-        allow delete: if isAdminOrAbove(orgId) || request.auth.uid == memberId || isSuperAdmin();
+        // Who may create a member doc:
+        //  • super admin — anyone;
+        //  • an admin/owner — anyone EXCEPT a new owner (no minting owners);
+        //  • the org creator — their own owner doc at creation time;
+        //  • an invited user — their own doc, matching a pending invitation (role-locked).
+        allow create: if isSuperAdmin() ||
+          (isAdminOrAbove(orgId) && request.resource.data.role != 'owner') ||
+          (request.auth.uid == memberId && isOrgCreator(orgId)) ||
+          (request.auth.uid == memberId && hasMatchingInvite(orgId));
+        // Admins can change roles, but can't touch the owner or promote anyone to owner.
+        allow update: if isSuperAdmin() ||
+          (isAdminOrAbove(orgId) && resource.data.role != 'owner' && request.resource.data.role != 'owner');
+        // Admins can remove members, users can remove themselves — but the owner can
+        // only be removed by a super admin (prevents orphaning / hostile removal).
+        allow delete: if isSuperAdmin() ||
+          ((isAdminOrAbove(orgId) || request.auth.uid == memberId) && resource.data.role != 'owner');
       }
 
       // ============================================
