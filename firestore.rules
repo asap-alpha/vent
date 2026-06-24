@@ -178,7 +178,10 @@ service cloud.firestore {
       // ============================================
       match /settings/{settingId} {
         allow read: if isMember(orgId) || isSuperAdmin();
-        allow write: if (isOwner(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
+        // The owner seeds the settings doc during onboarding, while the org is still
+        // 'pending' — so creation must NOT require approval. Later edits stay gated.
+        allow create: if isOwner(orgId) || isSuperAdmin();
+        allow update: if (isOwner(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
       // ============================================
