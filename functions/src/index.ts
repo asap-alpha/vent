@@ -14,9 +14,31 @@ import {
   paymentReceiptEmail,
   welcomeEmail,
 } from "./templates";
+import { DEFAULT_CHART } from "./chartOfAccounts";
+import { seedTaxCodesFor } from "./taxCodes";
 
 admin.initializeApp();
 const db = admin.firestore();
+
+// Sales-side GL posting triggers (invoice / receipt / credit-note → journal entries).
+export {
+  onSalesInvoiceWritten,
+  onReceiptWritten,
+  onCreditNoteWritten,
+} from "./salesPosting";
+
+// Purchases-side GL posting triggers (bill / payment / debit-note → journal entries).
+export {
+  onBillWritten,
+  onPaymentWritten,
+  onDebitNoteWritten,
+} from "./purchasesPosting";
+
+// Banking-side GL posting trigger (deposits / withdrawals / transfers → journal entries).
+export { onBankTransactionWritten } from "./bankingPosting";
+
+// One-time (re-runnable) backfill of pre-existing subledger docs into the ledger.
+export { backfillLedger } from "./backfill";
 
 // ================================================================
 // 1. INVITATION EMAIL — triggered when /invitations/{id} is created
@@ -338,6 +360,85 @@ export const sendBillNotification = onCall(
     return { success: true, sentTo: recipientEmail };
   }
 );
+
+// ================================================================
+// CHART OF ACCOUNTS SEEDING
+// Every new org gets a standard chart of accounts with tagged control
+// accounts, so the posting engine has AR/AP/Tax/etc. to post into.
+// ================================================================
+
+/**
+ * Seed the default chart of accounts for an org. Idempotent: if the org already
+ * has any accounts, it does nothing. Returns the number of accounts created.
+ */
+async function seedChartOfAccountsFor(orgId: string): Promise<number> {
+  const accountsRef = db.collection(`organizations/${orgId}/accounts`);
+  const existing = await accountsRef.limit(1).get();
+  if (!existing.empty) {
+    logger.info("[seedChart] org already has accounts — skipping", { orgId });
+    return 0;
+  }
+
+  const orgSnap = await db.doc(`organizations/${orgId}`).get();
+  const currency = orgSnap.data()?.currency || "GHS";
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const batch = db.batch();
+  for (const acc of DEFAULT_CHART) {
+    const ref = accountsRef.doc();
+    batch.set(ref, {
+      code: acc.code,
+      name: acc.name,
+      type: acc.type,
+      parentId: null,
+      currency,
+      isActive: true,
+      balance: 0,
+      description: acc.description || "",
+      systemType: acc.systemType || null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  await batch.commit();
+  logger.info("[seedChart] seeded default chart of accounts", { orgId, count: DEFAULT_CHART.length });
+  return DEFAULT_CHART.length;
+}
+
+// Auto-seed on org creation.
+export const onOrganizationCreated = onDocumentCreated(
+  "organizations/{orgId}",
+  async (event) => {
+    const orgId = event.params.orgId;
+    try {
+      await seedChartOfAccountsFor(orgId);
+      await seedTaxCodesFor(orgId);
+    } catch (err: any) {
+      logger.error("[onOrganizationCreated] seeding failed", { orgId, message: err?.message });
+    }
+  }
+);
+
+// Backfill callable — seed the chart for an existing org that has none.
+// Caller must be an owner/admin of that org (or super admin).
+export const seedChartOfAccounts = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in required.");
+  const orgId = request.data?.orgId as string;
+  if (!orgId) throw new HttpsError("invalid-argument", "orgId is required.");
+
+  const memberSnap = await db.doc(`organizations/${orgId}/members/${uid}`).get();
+  const role = memberSnap.data()?.role;
+  const userSnap = await db.doc(`users/${uid}`).get();
+  const isSuperAdmin = userSnap.data()?.platformRole === "super_admin";
+  if (!isSuperAdmin && role !== "owner" && role !== "admin") {
+    throw new HttpsError("permission-denied", "Only an owner, admin, or super admin can seed accounts.");
+  }
+
+  const created = await seedChartOfAccountsFor(orgId);
+  const taxCodesCreated = await seedTaxCodesFor(orgId);
+  return { success: true, created, taxCodesCreated };
+});
 
 // ---- Helper ----
 

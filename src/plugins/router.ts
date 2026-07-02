@@ -69,6 +69,12 @@ const router = createRouter({
       component: () => import('@/modules/accounting/GeneralLedgerPage.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/tax-codes',
+      name: 'tax-codes',
+      component: () => import('@/modules/accounting/TaxCodesPage.vue'),
+      meta: { requiresAuth: true },
+    },
 
     // Sales
     {
@@ -184,6 +190,12 @@ const router = createRouter({
       name: 'aging',
       component: () => import('@/modules/reports/AgingReportPage.vue'),
       meta: { requiresAuth: true, requiresFeature: 'advancedReports', featureLabel: 'Aging Report' },
+    },
+    {
+      path: '/reports/tax-summary',
+      name: 'tax-summary',
+      component: () => import('@/modules/reports/TaxSummaryPage.vue'),
+      meta: { requiresAuth: true, requiresFeature: 'advancedReports', featureLabel: 'Tax Summary' },
     },
 
     // Settings

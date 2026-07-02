@@ -10,6 +10,12 @@ export interface BankAccount {
   openingBalance: number
   currentBalance: number
   isActive: boolean
+  /**
+   * The general-ledger asset account this bank account posts to. Optional for
+   * backward compatibility; the posting engine falls back to the `bank` system
+   * account when absent.
+   */
+  glAccountId?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -26,6 +32,12 @@ export interface BankTransaction {
   reference: string
   description: string
   category: string
+  /**
+   * Contra GL account for this transaction (the account on the other side of the
+   * cash movement — an income account for a deposit, an expense account for a
+   * withdrawal). Without it the transaction can't be posted to the ledger.
+   */
+  categoryAccountId?: string
   reconciled: boolean
   journalEntryId: string | null
   transferAccountId: string | null

@@ -157,7 +157,7 @@ import { useOrganizationStore } from '@/stores/organization'
 import { required } from '@/utils/validation'
 import { formatCurrency } from '@/utils/currency'
 import { totalDebits, totalCredits, isBalanced } from '@/utils/accounting'
-import { formatDateISO } from '@/utils/date'
+import { formatDateISO, startOfLocalDay } from '@/utils/date'
 import PageHeader from '@/components/common/PageHeader.vue'
 import AuditInfo from '@/components/common/AuditInfo.vue'
 import type { JournalLine, JournalEntry } from '@/types/accounting'
@@ -238,7 +238,7 @@ async function save(status: 'draft' | 'posted') {
   error.value = ''
   try {
     const data = {
-      date: new Date(form.value.dateStr),
+      date: startOfLocalDay(form.value.dateStr),
       reference: form.value.reference,
       memo: form.value.memo,
       lines,

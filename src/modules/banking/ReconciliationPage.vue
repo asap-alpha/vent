@@ -287,8 +287,7 @@ async function completeReconciliation() {
 
 async function cancelReconciliation() {
   if (!activeRec.value) return
-  const txnIds = unreconciledTransactions.value.filter((t) => t.reconciled).map((t) => t.id)
-  await bankingStore.completeReconciliation(activeRec.value.id, reconciledTotal.value, txnIds)
+  await bankingStore.cancelReconciliation(activeRec.value.id)
 }
 
 onMounted(() => {

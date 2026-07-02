@@ -7,10 +7,15 @@ import {
 import { db } from '@/plugins/firebase'
 import { useOrganizationStore } from './organization'
 import { useAuthStore } from './auth'
+import { useTaxStore } from './tax'
+import { useAccountsStore } from './accounts'
+import { computeTaxBreakdown } from '@/utils/tax'
+import { round2 } from '@/utils/accounting'
 import type {
   PurchaseInvoice, BillLine, BillStatus,
   PurchaseOrder, DebitNote, Payment,
 } from '@/types/purchases'
+import type { TaxLine } from '@/types/tax'
 import { logger } from '@/utils/logger'
 
 const log = logger('bills')
@@ -43,6 +48,41 @@ export const useBillsStore = defineStore('bills', () => {
       const tax = sub * ((l.taxRate || 0) / 100)
       return { ...l, amount: sub + tax }
     })
+  }
+
+  // Split each line's tax across its tax code's component accounts (input VAT/levies),
+  // aggregated by account. Lines with a raw taxRate but no code post to Tax Payable.
+  function computeTaxLines(lines: BillLine[]): { taxLines: TaxLine[]; taxTotal: number } {
+    const taxStore = useTaxStore()
+    const accountsStore = useAccountsStore()
+    const byAccount = new Map<string, { name: string; amount: number }>()
+    let taxTotal = 0
+    const add = (accountId: string, name: string, amount: number) => {
+      if (!accountId || amount === 0) return
+      const cur = byAccount.get(accountId) || { name, amount: 0 }
+      cur.amount = round2(cur.amount + amount)
+      byAccount.set(accountId, cur)
+      taxTotal = round2(taxTotal + amount)
+    }
+    for (const l of lines) {
+      const base = round2((l.quantity || 0) * (l.unitPrice || 0))
+      if (base === 0) continue
+      const code = l.taxCodeId ? taxStore.getTaxCode(l.taxCodeId) : undefined
+      if (code && code.components.length) {
+        for (const c of computeTaxBreakdown(base, code.components).components) {
+          add(c.accountId, c.name, c.amount)
+        }
+      } else if ((l.taxRate || 0) > 0) {
+        const acctId = accountsStore.getSystemAccount('tax_payable')?.id || ''
+        add(acctId, 'Tax', round2(base * ((l.taxRate || 0) / 100)))
+      }
+    }
+    const taxLines: TaxLine[] = Array.from(byAccount.entries()).map(([accountId, v]) => ({
+      accountId,
+      name: v.name,
+      amount: v.amount,
+    }))
+    return { taxLines, taxTotal }
   }
 
   function mapDoc(d: any) {
@@ -129,7 +169,9 @@ export const useBillsStore = defineStore('bills', () => {
     if (!orgStore.orgId || !authStore.user) throw new Error('Not authenticated')
 
     const lines = recomputeLines(data.lines)
-    const { subtotal, taxTotal, total } = calcTotals(lines)
+    const { subtotal } = calcTotals(lines)
+    const { taxLines, taxTotal } = computeTaxLines(lines)
+    const total = round2(subtotal + taxTotal)
 
     log.info('createBill', { number: data.number, supplierId: data.supplierId, total })
     try {
@@ -140,7 +182,7 @@ export const useBillsStore = defineStore('bills', () => {
         date: Timestamp.fromDate(data.date),
         dueDate: Timestamp.fromDate(data.dueDate),
         status: data.status || 'draft',
-        lines, subtotal, taxTotal, total,
+        lines, subtotal, taxTotal, total, taxLines,
         amountPaid: 0,
         amountDue: total,
         notes: data.notes,
@@ -161,14 +203,19 @@ export const useBillsStore = defineStore('bills', () => {
     delete updateData.id
     delete updateData.createdAt
     if (updateData.lines) {
+      const bill = bills.value.find((b) => b.id === id)
+      if ((bill?.amountPaid || 0) > 0) {
+        throw new Error('This bill has payments and cannot be edited. Void it and record a new one.')
+      }
       updateData.lines = recomputeLines(updateData.lines)
-      const { subtotal, taxTotal, total } = calcTotals(updateData.lines)
+      const { subtotal } = calcTotals(updateData.lines)
+      const { taxLines, taxTotal } = computeTaxLines(updateData.lines)
+      const total = round2(subtotal + taxTotal)
       updateData.subtotal = subtotal
       updateData.taxTotal = taxTotal
       updateData.total = total
-      const bill = bills.value.find((b) => b.id === id)
-      const paid = bill?.amountPaid || 0
-      updateData.amountDue = total - paid
+      updateData.taxLines = taxLines
+      updateData.amountDue = round2(total - (bill?.amountPaid || 0))
     }
     if (updateData.date instanceof Date) updateData.date = Timestamp.fromDate(updateData.date)
     if (updateData.dueDate instanceof Date) updateData.dueDate = Timestamp.fromDate(updateData.dueDate)
@@ -187,6 +234,10 @@ export const useBillsStore = defineStore('bills', () => {
   async function deleteBill(id: string) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
+    const bill = bills.value.find((b) => b.id === id)
+    if ((bill?.amountPaid || 0) > 0) {
+      throw new Error('This bill has payments and cannot be deleted. Void it instead.')
+    }
     log.info('deleteBill', { id })
     try {
       await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'purchaseInvoices', id))

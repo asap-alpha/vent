@@ -9,6 +9,22 @@ export function formatDateISO(date: Date): string {
   return format(date, 'yyyy-MM-dd')
 }
 
+/**
+ * Parse a 'YYYY-MM-DD' input as LOCAL midnight. `new Date('YYYY-MM-DD')` parses as
+ * UTC midnight, which shifts the day for anyone behind UTC and drops boundary-day
+ * entries from reports. Use this for point/stored dates.
+ */
+export function startOfLocalDay(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, d, 0, 0, 0, 0)
+}
+
+/** Local end-of-day for inclusive "as of" / "to" report boundaries. */
+export function endOfLocalDay(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, d, 23, 59, 59, 999)
+}
+
 export function getCurrentPeriod() {
   const now = new Date()
   return {

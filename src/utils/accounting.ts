@@ -1,5 +1,14 @@
 import type { JournalLine } from '@/types/accounting'
 
+/**
+ * Round a monetary amount to 2 decimal places (currency minor units). Use at every
+ * aggregation boundary so accumulated float drift doesn't leak into totals/reports.
+ * (Interim measure until money is stored as integer minor units — see roadmap.)
+ */
+export function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100
+}
+
 export function totalDebits(lines: JournalLine[]): number {
   return lines.reduce((sum, line) => sum + (line.debit || 0), 0)
 }

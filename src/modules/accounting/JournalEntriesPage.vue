@@ -38,29 +38,47 @@
           <v-chip :color="statusColor(item.status)" size="x-small" variant="tonal">
             {{ item.status }}
           </v-chip>
+          <v-chip
+            v-if="item.autoPosted"
+            color="info"
+            size="x-small"
+            variant="tonal"
+            class="ml-1"
+            prepend-icon="mdi-cog"
+          >
+            Auto
+          </v-chip>
         </template>
         <template #item.actions="{ item }">
-          <v-btn
-            v-if="item.status === 'draft'"
-            icon="mdi-check"
-            size="x-small"
-            variant="text"
-            color="success"
-            @click.stop="postEntry(item.id)"
-          />
-          <v-btn
-            icon="mdi-pencil"
-            size="x-small"
-            variant="text"
-            @click.stop="editEntry(item.id)"
-          />
-          <v-btn
-            icon="mdi-delete"
-            size="x-small"
-            variant="text"
-            color="error"
-            @click.stop="confirmDelete(item.id)"
-          />
+          <!-- Auto-posted entries are system-owned: view only, edit the source doc. -->
+          <v-tooltip v-if="item.autoPosted" text="Posted automatically from a source document" location="top">
+            <template #activator="{ props }">
+              <v-icon v-bind="props" size="small" color="grey" class="mr-1">mdi-lock</v-icon>
+            </template>
+          </v-tooltip>
+          <template v-else>
+            <v-btn
+              v-if="item.status === 'draft'"
+              icon="mdi-check"
+              size="x-small"
+              variant="text"
+              color="success"
+              @click.stop="postEntry(item.id)"
+            />
+            <v-btn
+              icon="mdi-pencil"
+              size="x-small"
+              variant="text"
+              @click.stop="editEntry(item.id)"
+            />
+            <v-btn
+              icon="mdi-delete"
+              size="x-small"
+              variant="text"
+              color="error"
+              @click.stop="confirmDelete(item.id)"
+            />
+          </template>
         </template>
         <template #no-data>
           <EmptyState
@@ -124,6 +142,8 @@ function statusColor(status: JournalStatus): string {
 }
 
 function onRowClick(_: any, row: { item: JournalEntry }) {
+  // Auto-posted entries are read-only; don't open them in the editable form.
+  if (row.item.autoPosted) return
   editEntry(row.item.id)
 }
 

@@ -13,6 +13,17 @@
         >
           Seed Defaults
         </v-btn>
+        <v-btn
+          v-if="accounts.length > 0 && canBackfill"
+          variant="outlined"
+          prepend-icon="mdi-book-sync-outline"
+          size="small"
+          class="mr-2"
+          :loading="backfilling"
+          @click="runBackfill"
+        >
+          Post Historical Data
+        </v-btn>
         <v-btn color="primary" prepend-icon="mdi-plus" size="small" @click="openCreate">
           New Account
         </v-btn>
@@ -148,8 +159,12 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { useTransactionsStore } from '@/stores/transactions'
 import { useOrganizationStore } from '@/stores/organization'
+import { useAuthStore } from '@/stores/auth'
+import { httpsCallable } from 'firebase/functions'
+import { functions } from '@/plugins/firebase'
 import { required } from '@/utils/validation'
 import { formatCurrency } from '@/utils/currency'
+import { logger } from '@/utils/logger'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -158,6 +173,8 @@ import type { Account, AccountType } from '@/types/accounting'
 const accountsStore = useAccountsStore()
 const transactionsStore = useTransactionsStore()
 const orgStore = useOrganizationStore()
+const authStore = useAuthStore()
+const log = logger('accounts-page')
 
 const accounts = computed(() => accountsStore.accounts)
 const activeType = ref<'all' | AccountType>('all')
@@ -285,6 +302,33 @@ async function seedDefaults() {
     await accountsStore.seedDefaultAccounts()
   } finally {
     seeding.value = false
+  }
+}
+
+// One-time (re-runnable) backfill: posts pre-existing invoices/bills/receipts/
+// payments/bank transactions into the general ledger. Owner/admin/super-admin only.
+const canBackfill = computed(
+  () => authStore.isSuperAdmin || orgStore.myRole === 'owner' || orgStore.myRole === 'admin'
+)
+const backfilling = ref(false)
+async function runBackfill() {
+  if (!orgStore.orgId) return
+  const ok = window.confirm(
+    'Post all existing invoices, bills, receipts, payments and bank transactions to the general ledger?\n\nThis is safe to run more than once.'
+  )
+  if (!ok) return
+  backfilling.value = true
+  try {
+    const call = httpsCallable(functions, 'backfillLedger')
+    const res: any = await call({ orgId: orgStore.orgId })
+    const d = res.data || {}
+    log.info('backfill complete', d)
+    alert(`Ledger backfill complete.\n\nDocuments swept: ${d.grandTotal ?? 0}\nEntries posted: ${d.grandCreated ?? 0}`)
+  } catch (e: any) {
+    log.error('backfill failed', { message: e.message })
+    alert(`Backfill failed: ${e.message}`)
+  } finally {
+    backfilling.value = false
   }
 }
 

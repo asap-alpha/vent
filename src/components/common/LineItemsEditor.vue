@@ -13,9 +13,16 @@
         <thead>
           <tr>
             <th class="text-body-2 font-weight-medium">Description</th>
+            <th v-if="accountOptions" class="text-body-2 font-weight-medium" style="width: 200px">Account</th>
             <th class="text-body-2 font-weight-medium text-end" style="width: 80px">Qty</th>
             <th class="text-body-2 font-weight-medium text-end" style="width: 120px">Unit Price</th>
-            <th class="text-body-2 font-weight-medium text-end" style="width: 80px">Tax %</th>
+            <th
+              class="text-body-2 font-weight-medium"
+              :class="taxCodes ? '' : 'text-end'"
+              :style="taxCodes ? 'width: 180px' : 'width: 80px'"
+            >
+              Tax
+            </th>
             <th class="text-body-2 font-weight-medium text-end" style="width: 130px">Amount</th>
             <th style="width: 44px"></th>
           </tr>
@@ -29,6 +36,19 @@
                 variant="outlined"
                 hide-details
                 placeholder="Description"
+                @update:model-value="emitUpdate"
+              />
+            </td>
+            <td v-if="accountOptions" class="py-2">
+              <v-select
+                v-model="line.accountId"
+                :items="accountOptions"
+                item-title="title"
+                item-value="value"
+                density="compact"
+                variant="outlined"
+                hide-details
+                placeholder="Account"
                 @update:model-value="emitUpdate"
               />
             </td>
@@ -59,7 +79,21 @@
               />
             </td>
             <td class="py-2">
+              <v-select
+                v-if="taxCodes"
+                v-model="line.taxCodeId"
+                :items="taxCodes"
+                item-title="title"
+                item-value="value"
+                density="compact"
+                variant="outlined"
+                hide-details
+                clearable
+                placeholder="No tax"
+                @update:model-value="(v: string | null) => onTaxCodeChange(line, v)"
+              />
               <v-text-field
+                v-else
                 v-model.number="line.taxRate"
                 type="number"
                 density="compact"
@@ -118,12 +152,43 @@ interface Line {
   unitPrice: number
   taxRate: number
   amount: number
+  accountId?: string
+  taxCodeId?: string
+}
+
+interface AccountOption {
+  title: string
+  value: string
+}
+
+interface TaxCodeOption {
+  title: string
+  value: string
+  rate: number
 }
 
 const props = defineProps<{
   modelValue: Line[]
   currency: string
+  /** When provided, renders a per-line account picker with these options. */
+  accountOptions?: AccountOption[]
+  /** Account preselected for newly added lines. */
+  defaultAccountId?: string
+  /** When provided, replaces the raw "Tax %" field with a tax-code picker. */
+  taxCodes?: TaxCodeOption[]
+  /** Tax code preselected for newly added lines. */
+  defaultTaxCodeId?: string
 }>()
+
+// Selecting a tax code sets the line's effective rate so the existing amount/total
+// math (which is linear in the base) stays correct; the component breakdown for
+// posting is derived at save time from the code.
+function onTaxCodeChange(line: Line, codeId: string | null) {
+  const code = codeId ? props.taxCodes?.find((c) => c.value === codeId) : undefined
+  line.taxCodeId = codeId || undefined
+  line.taxRate = code?.rate || 0
+  emitUpdate()
+}
 
 const emit = defineEmits<{
   'update:modelValue': [value: Line[]]
@@ -152,9 +217,20 @@ function emitUpdate() {
 }
 
 function addLine() {
+  const defaultCode = props.defaultTaxCodeId
+    ? props.taxCodes?.find((c) => c.value === props.defaultTaxCodeId)
+    : undefined
   emit('update:modelValue', [
     ...props.modelValue,
-    { description: '', quantity: 1, unitPrice: 0, taxRate: 0, amount: 0 },
+    {
+      description: '',
+      quantity: 1,
+      unitPrice: 0,
+      taxRate: defaultCode?.rate || 0,
+      amount: 0,
+      accountId: props.defaultAccountId,
+      taxCodeId: props.defaultTaxCodeId,
+    },
   ])
 }
 

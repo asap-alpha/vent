@@ -16,7 +16,12 @@ import {
 import { db } from '@/plugins/firebase'
 import { useOrganizationStore } from './organization'
 import { useAuthStore } from './auth'
+import { useTaxStore } from './tax'
+import { useAccountsStore } from './accounts'
+import { computeTaxBreakdown } from '@/utils/tax'
+import { round2 } from '@/utils/accounting'
 import type { SalesInvoice, InvoiceLine, InvoiceStatus, Quote, CreditNote, Receipt } from '@/types/sales'
+import type { TaxLine } from '@/types/tax'
 import { logger } from '@/utils/logger'
 
 const log = logger('invoices')
@@ -52,6 +57,42 @@ export const useInvoicesStore = defineStore('invoices', () => {
       const tax = sub * ((l.taxRate || 0) / 100)
       return { ...l, amount: sub + tax }
     })
+  }
+
+  // Split each line's tax across its tax code's component accounts, aggregated by
+  // account. Lines with a raw taxRate but no code post to the Tax Payable control
+  // account. Returns the authoritative taxTotal (sum of rounded components) too.
+  function computeTaxLines(lines: InvoiceLine[]): { taxLines: TaxLine[]; taxTotal: number } {
+    const taxStore = useTaxStore()
+    const accountsStore = useAccountsStore()
+    const byAccount = new Map<string, { name: string; amount: number }>()
+    let taxTotal = 0
+    const add = (accountId: string, name: string, amount: number) => {
+      if (!accountId || amount === 0) return
+      const cur = byAccount.get(accountId) || { name, amount: 0 }
+      cur.amount = round2(cur.amount + amount)
+      byAccount.set(accountId, cur)
+      taxTotal = round2(taxTotal + amount)
+    }
+    for (const l of lines) {
+      const base = round2((l.quantity || 0) * (l.unitPrice || 0))
+      if (base === 0) continue
+      const code = l.taxCodeId ? taxStore.getTaxCode(l.taxCodeId) : undefined
+      if (code && code.components.length) {
+        for (const c of computeTaxBreakdown(base, code.components).components) {
+          add(c.accountId, c.name, c.amount)
+        }
+      } else if ((l.taxRate || 0) > 0) {
+        const acctId = accountsStore.getSystemAccount('tax_payable')?.id || ''
+        add(acctId, 'Tax', round2(base * ((l.taxRate || 0) / 100)))
+      }
+    }
+    const taxLines: TaxLine[] = Array.from(byAccount.entries()).map(([accountId, v]) => ({
+      accountId,
+      name: v.name,
+      amount: v.amount,
+    }))
+    return { taxLines, taxTotal }
   }
 
   function subscribe() {
@@ -149,7 +190,9 @@ export const useInvoicesStore = defineStore('invoices', () => {
     useFeatureGate().requireUnderLimit('invoicesPerMonth', invoicesThisMonth, 'invoice this month')
 
     const lines = recomputeLineAmounts(data.lines)
-    const { subtotal, taxTotal, total } = calcTotals(lines)
+    const { subtotal } = calcTotals(lines)
+    const { taxLines, taxTotal } = computeTaxLines(lines)
+    const total = round2(subtotal + taxTotal)
 
     log.info('createInvoice', { number: data.number, customerId: data.customerId, total })
     try {
@@ -166,6 +209,7 @@ export const useInvoicesStore = defineStore('invoices', () => {
           subtotal,
           taxTotal,
           total,
+          taxLines,
           amountPaid: 0,
           amountDue: total,
           notes: data.notes,
@@ -189,14 +233,21 @@ export const useInvoicesStore = defineStore('invoices', () => {
     delete updateData.createdAt
 
     if (updateData.lines) {
+      const inv = invoices.value.find((i) => i.id === id)
+      // Don't let a paid/part-paid invoice's amounts be edited — it would orphan the
+      // receipts and desync the balance. Void + reissue instead.
+      if ((inv?.amountPaid || 0) > 0) {
+        throw new Error('This invoice has payments and cannot be edited. Void it and issue a new one.')
+      }
       updateData.lines = recomputeLineAmounts(updateData.lines)
-      const { subtotal, taxTotal, total } = calcTotals(updateData.lines)
+      const { subtotal } = calcTotals(updateData.lines)
+      const { taxLines, taxTotal } = computeTaxLines(updateData.lines)
+      const total = round2(subtotal + taxTotal)
       updateData.subtotal = subtotal
       updateData.taxTotal = taxTotal
       updateData.total = total
-      const inv = invoices.value.find((i) => i.id === id)
-      const paid = inv?.amountPaid || 0
-      updateData.amountDue = total - paid
+      updateData.taxLines = taxLines
+      updateData.amountDue = round2(total - (inv?.amountPaid || 0))
     }
     if (updateData.date instanceof Date) updateData.date = Timestamp.fromDate(updateData.date)
     if (updateData.dueDate instanceof Date) updateData.dueDate = Timestamp.fromDate(updateData.dueDate)
@@ -216,6 +267,10 @@ export const useInvoicesStore = defineStore('invoices', () => {
   async function deleteInvoice(id: string) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
+    const inv = invoices.value.find((i) => i.id === id)
+    if ((inv?.amountPaid || 0) > 0) {
+      throw new Error('This invoice has payments and cannot be deleted. Void it instead.')
+    }
     log.info('deleteInvoice', { id })
     try {
       await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'salesInvoices', id))

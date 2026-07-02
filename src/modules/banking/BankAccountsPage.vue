@@ -167,6 +167,17 @@
                 <v-text-field v-model="accountForm.currency" label="Currency" :rules="[required]" />
               </v-col>
             </v-row>
+            <v-select
+              v-model="accountForm.glAccountId"
+              label="Ledger Account"
+              :items="glAssetOptions"
+              item-title="title"
+              item-value="value"
+              hint="The general-ledger asset account this bank posts to"
+              persistent-hint
+              clearable
+              class="mb-2"
+            />
             <v-text-field
               v-model.number="accountForm.openingBalance"
               label="Opening Balance"
@@ -214,7 +225,18 @@
             </v-row>
             <v-text-field v-model="txnForm.payee" label="Payee / From" class="mb-2" />
             <v-text-field v-model="txnForm.reference" label="Reference" class="mb-2" />
-            <v-text-field v-model="txnForm.category" label="Category" class="mb-2" />
+            <v-select
+              v-model="txnForm.categoryAccountId"
+              :label="txnForm.type === 'deposit' ? 'Income / Account' : 'Expense / Account'"
+              :items="contraAccountOptions"
+              item-title="title"
+              item-value="value"
+              hint="Which ledger account this maps to. Required to post to the books."
+              persistent-hint
+              clearable
+              class="mb-2"
+            />
+            <v-text-field v-model="txnForm.category" label="Category (label)" class="mb-2" />
             <v-textarea
               v-model="txnForm.description"
               label="Description"
@@ -358,6 +380,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useBankingStore } from '@/stores/banking'
 import { useOrganizationStore } from '@/stores/organization'
+import { useAccountsStore } from '@/stores/accounts'
 import { required, positiveNumber } from '@/utils/validation'
 import { formatCurrency } from '@/utils/currency'
 import { formatDate, formatDateISO } from '@/utils/date'
@@ -369,6 +392,18 @@ import type { BankAccount, BankAccountType, BankTransactionType } from '@/types/
 
 const bankingStore = useBankingStore()
 const orgStore = useOrganizationStore()
+const accountsStore = useAccountsStore()
+
+// GL asset accounts a bank account can be linked to.
+const glAssetOptions = computed(() =>
+  accountsStore.activeAccounts
+    .filter((a) => a.type === 'asset')
+    .map((a) => ({ title: `${a.code} — ${a.name}`, value: a.id }))
+)
+// Contra accounts for a deposit/withdrawal — any posting account.
+const contraAccountOptions = computed(() =>
+  accountsStore.activeAccounts.map((a) => ({ title: `${a.code} — ${a.name}`, value: a.id }))
+)
 
 const selectedId = ref<string>('')
 const txnSearch = ref('')
@@ -423,6 +458,7 @@ const accountForm = ref({
   currency: 'GHS',
   openingBalance: 0,
   isActive: true,
+  glAccountId: '' as string,
 })
 
 function resetAccountForm() {
@@ -434,6 +470,7 @@ function resetAccountForm() {
     currency: orgStore.currentOrg?.currency || 'GHS',
     openingBalance: 0,
     isActive: true,
+    glAccountId: accountsStore.getSystemAccount('bank')?.id || '',
   }
   accountError.value = ''
   editing.value = null
@@ -454,6 +491,7 @@ function openEdit(acc: BankAccount) {
     currency: acc.currency,
     openingBalance: acc.openingBalance,
     isActive: acc.isActive,
+    glAccountId: acc.glAccountId || accountsStore.getSystemAccount('bank')?.id || '',
   }
   accountError.value = ''
   accountDialog.value = true
@@ -492,6 +530,7 @@ const txnForm = ref({
   payee: '',
   reference: '',
   category: '',
+  categoryAccountId: '' as string,
   description: '',
 })
 
@@ -503,6 +542,7 @@ function openTransaction(type: 'deposit' | 'withdrawal') {
     payee: '',
     reference: '',
     category: '',
+    categoryAccountId: '',
     description: '',
   }
   txnError.value = ''
@@ -525,6 +565,7 @@ async function saveTransaction() {
       reference: txnForm.value.reference,
       description: txnForm.value.description,
       category: txnForm.value.category,
+      categoryAccountId: txnForm.value.categoryAccountId,
     })
     txnDialog.value = false
   } catch (e: any) {
@@ -632,11 +673,17 @@ async function confirmDeleteTxn(id: string) {
 }
 
 onMounted(() => {
-  if (orgStore.orgId) bankingStore.subscribe()
+  if (orgStore.orgId) {
+    bankingStore.subscribe()
+    accountsStore.subscribe()
+  }
 })
 
 watch(() => orgStore.orgId, (id) => {
-  if (id) bankingStore.subscribe()
+  if (id) {
+    bankingStore.subscribe()
+    accountsStore.subscribe()
+  }
 })
 
 watch(

@@ -1,3 +1,5 @@
+import type { TaxLine } from './tax'
+
 export interface Customer {
   id: string
   name: string
@@ -17,6 +19,14 @@ export interface InvoiceLine {
   unitPrice: number
   taxRate: number
   amount: number
+  /**
+   * Income account this line posts to (a `revenue` account). Optional for backward
+   * compatibility with old data; the posting engine falls back to the `sales`
+   * system account when absent.
+   */
+  accountId?: string
+  /** Tax code applied to this line; `taxRate` holds its derived effective rate. */
+  taxCodeId?: string
 }
 
 export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'partially_paid' | 'overdue' | 'void'
@@ -33,6 +43,8 @@ export interface SalesInvoice {
   subtotal: number
   taxTotal: number
   total: number
+  /** Tax grouped by liability account (from tax codes); drives GL tax posting. */
+  taxLines?: TaxLine[]
   amountPaid: number
   amountDue: number
   notes: string
