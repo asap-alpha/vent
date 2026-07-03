@@ -339,3 +339,252 @@ export function exportBillPDF(
     filename: `${bill.number}.pdf`,
   })
 }
+
+// ============================================================
+// FINANCIAL STATEMENTS & REPORTS
+// Branded PDF exports for the reports module (Balance Sheet, P&L, Cash Flow,
+// Trial Balance, Aging, Tax Summary). The currency is stated once in the header
+// ("Amounts in GHS") and figures are rendered accounting-style — plain numbers
+// with negatives in parentheses — so per-line currency symbols never clutter the
+// statement (and jsPDF's WinAnsi encoding never has to render a ₵/€ glyph).
+// ============================================================
+
+const REPORT_PRIMARY: [number, number, number] = [21, 101, 192]
+const REPORT_DARK: [number, number, number] = [33, 33, 33]
+const REPORT_MUTED: [number, number, number] = [120, 120, 120]
+const REPORT_BORDER: [number, number, number] = [210, 210, 210]
+
+/** Accounting-style figure: `1,234.00`, negatives as `(1,234.00)`, zero as `-`. */
+function formatStatementAmount(amount: number): string {
+  if (Math.abs(amount) < 0.005) return '-'
+  const formatted = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Math.abs(amount))
+  return amount < 0 ? `(${formatted})` : formatted
+}
+
+interface ReportMeta {
+  org: Organization
+  currency: string
+  title: string
+  periodLabel: string   // "As at 31 Dec 2025" or "For the period 01 Jan 2025 – 31 Dec 2025"
+  basisLabel?: string   // e.g. "Accrual basis"
+}
+
+/**
+ * Draw the centered statement header (org / title / period / basis / "Amounts in X")
+ * and the top rule. Returns the y-coordinate to start the body from.
+ */
+function renderReportHeader(doc: jsPDF, meta: ReportMeta, margin: number): number {
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const cx = pageWidth / 2
+  let y = margin + 6
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(13)
+  doc.setTextColor(...REPORT_DARK)
+  doc.text(meta.org.name || 'Organization', cx, y, { align: 'center' })
+  y += 8
+
+  doc.setFontSize(18)
+  doc.setTextColor(...REPORT_PRIMARY)
+  doc.text(meta.title, cx, y, { align: 'center' })
+  y += 7
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  doc.setTextColor(...REPORT_MUTED)
+  doc.text(meta.periodLabel, cx, y, { align: 'center' })
+  y += 5
+
+  if (meta.basisLabel) {
+    doc.text(meta.basisLabel, cx, y, { align: 'center' })
+    y += 5
+  }
+
+  doc.setFontSize(8)
+  doc.text(`Amounts in ${meta.currency}`, cx, y, { align: 'center' })
+  y += 5
+
+  doc.setDrawColor(...REPORT_BORDER)
+  doc.setLineWidth(0.4)
+  doc.line(margin, y, pageWidth - margin, y)
+  y += 8
+
+  return y
+}
+
+/** Generated-timestamp footer, drawn on the current page. */
+function renderReportFooter(doc: jsPDF) {
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(...REPORT_MUTED)
+  doc.text(
+    `Generated ${formatDate(new Date(), 'dd MMM yyyy HH:mm')}`,
+    pageWidth / 2,
+    pageHeight - 8,
+    { align: 'center' }
+  )
+}
+
+export type StatementRow =
+  | { kind: 'heading'; label: string }
+  | { kind: 'line'; label: string; value: number; indent?: boolean }
+  | { kind: 'subtotal'; label: string; value: number }
+  | { kind: 'total'; label: string; value: number }
+  | { kind: 'note'; label: string }
+  | { kind: 'spacer' }
+
+interface StatementConfig extends ReportMeta {
+  rows: StatementRow[]
+  filename: string
+}
+
+/**
+ * Render a two-column financial statement (label left, figure right) with section
+ * headings, subtotals and a grand total — the shape of a Balance Sheet, P&L or
+ * Cash Flow Statement.
+ */
+export function exportStatementPDF(cfg: StatementConfig) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const margin = 15
+  const valueX = pageWidth - margin
+
+  let y = renderReportHeader(doc, cfg, margin)
+
+  function ensureSpace(rowHeight: number) {
+    if (y + rowHeight > pageHeight - 16) {
+      renderReportFooter(doc)
+      doc.addPage()
+      y = renderReportHeader(doc, cfg, margin)
+    }
+  }
+
+  for (const row of cfg.rows) {
+    switch (row.kind) {
+      case 'spacer':
+        y += 4
+        break
+      case 'heading':
+        ensureSpace(8)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(10)
+        doc.setTextColor(...REPORT_DARK)
+        doc.text(row.label, margin, y)
+        y += 6
+        break
+      case 'note':
+        ensureSpace(6)
+        doc.setFont('helvetica', 'italic')
+        doc.setFontSize(8.5)
+        doc.setTextColor(...REPORT_MUTED)
+        doc.text(doc.splitTextToSize(row.label, pageWidth - margin * 2), margin, y)
+        y += 6
+        break
+      case 'line':
+        ensureSpace(6)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(9.5)
+        doc.setTextColor(...REPORT_DARK)
+        doc.text(row.label, margin + (row.indent ? 6 : 0), y)
+        doc.text(formatStatementAmount(row.value), valueX, y, { align: 'right' })
+        y += 5.5
+        break
+      case 'subtotal':
+        ensureSpace(8)
+        doc.setDrawColor(...REPORT_BORDER)
+        doc.setLineWidth(0.2)
+        doc.line(valueX - 45, y - 3.5, valueX, y - 3.5)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(9.5)
+        doc.setTextColor(...REPORT_DARK)
+        doc.text(row.label, margin, y)
+        doc.text(formatStatementAmount(row.value), valueX, y, { align: 'right' })
+        y += 6
+        break
+      case 'total':
+        ensureSpace(10)
+        doc.setDrawColor(...REPORT_DARK)
+        doc.setLineWidth(0.4)
+        doc.line(margin, y - 4, valueX, y - 4)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(11)
+        doc.setTextColor(...REPORT_PRIMARY)
+        doc.text(row.label, margin, y)
+        doc.text(formatStatementAmount(row.value), valueX, y, { align: 'right' })
+        doc.setDrawColor(...REPORT_DARK)
+        doc.setLineWidth(0.4)
+        doc.line(margin, y + 2, valueX, y + 2)
+        y += 8
+        break
+    }
+  }
+
+  renderReportFooter(doc)
+  doc.save(cfg.filename)
+}
+
+interface TableReportConfig extends ReportMeta {
+  head: string[][]
+  body: string[][]
+  foot?: string[][]
+  /** Per-column horizontal alignment; defaults to left. */
+  aligns?: Array<'left' | 'right' | 'center'>
+  filename: string
+}
+
+/**
+ * Render a multi-column tabular report (Trial Balance, Aging, Tax Summary). Cells
+ * are pre-formatted strings so each page controls its own number formatting.
+ */
+export function exportTableReportPDF(cfg: TableReportConfig) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  const margin = 15
+
+  const startY = renderReportHeader(doc, cfg, margin)
+
+  const columnStyles: Record<number, any> = {}
+  cfg.aligns?.forEach((a, i) => {
+    columnStyles[i] = { halign: a }
+  })
+
+  autoTable(doc, {
+    startY,
+    margin: { left: margin, right: margin },
+    head: cfg.head,
+    body: cfg.body,
+    foot: cfg.foot,
+    theme: 'plain',
+    styles: {
+      font: 'helvetica',
+      fontSize: 9,
+      cellPadding: { top: 2.5, right: 3, bottom: 2.5, left: 3 },
+      lineColor: REPORT_BORDER,
+      lineWidth: 0.1,
+    },
+    headStyles: {
+      fillColor: REPORT_PRIMARY,
+      textColor: 255,
+      fontStyle: 'bold',
+    },
+    footStyles: {
+      fillColor: [240, 240, 240],
+      textColor: REPORT_DARK,
+      fontStyle: 'bold',
+    },
+    columnStyles,
+    didDrawPage: () => renderReportFooter(doc),
+  })
+
+  doc.save(cfg.filename)
+}
+
+/** Accounting-style amount for tabular report cells (shared with statements). */
+export function reportAmount(amount: number): string {
+  return formatStatementAmount(amount)
+}

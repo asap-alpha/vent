@@ -1,6 +1,17 @@
 <template>
   <div class="trial-balance-report">
-    <PageHeader title="Trial Balance" />
+    <PageHeader title="Trial Balance">
+      <template #actions>
+        <v-btn
+          color="primary"
+          variant="tonal"
+          prepend-icon="mdi-file-pdf-box"
+          @click="downloadPdf"
+        >
+          Download PDF
+        </v-btn>
+      </template>
+    </PageHeader>
 
     <div class="d-flex align-center flex-wrap ga-2 mb-4">
       <v-btn-toggle v-model="period" mandatory density="compact" rounded="lg" variant="outlined">
@@ -56,8 +67,9 @@ import { useAccountsStore } from '@/stores/accounts'
 import { useTransactionsStore } from '@/stores/transactions'
 import { useOrganizationStore } from '@/stores/organization'
 import { formatCurrency } from '@/utils/currency'
-import { formatDateISO, endOfLocalDay } from '@/utils/date'
+import { formatDate, formatDateISO, endOfLocalDay } from '@/utils/date'
 import { endOfMonth, endOfQuarter, endOfYear, subMonths, subQuarters } from 'date-fns'
+import { exportTableReportPDF, reportAmount } from '@/utils/pdf'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const accountsStore = useAccountsStore()
@@ -97,6 +109,28 @@ const headers = [
   { title: 'Debit', key: 'debit', align: 'end' as const, width: 160 },
   { title: 'Credit', key: 'credit', align: 'end' as const, width: 160 },
 ]
+
+function downloadPdf() {
+  const org = orgStore.currentOrg
+  if (!org) return
+  exportTableReportPDF({
+    org,
+    currency: currency.value,
+    title: 'Trial Balance',
+    periodLabel: `As at ${formatDate(endOfLocalDay(asOfDate.value))}`,
+    head: [['Code', 'Account', 'Type', 'Debit', 'Credit']],
+    body: rows.value.map((r) => [
+      r.accountCode,
+      r.accountName,
+      r.accountType,
+      r.debit > 0 ? reportAmount(r.debit) : '',
+      r.credit > 0 ? reportAmount(r.credit) : '',
+    ]),
+    foot: [['', '', 'Totals', reportAmount(totalDebits.value), reportAmount(totalCredits.value)]],
+    aligns: ['left', 'left', 'left', 'right', 'right'],
+    filename: `Trial Balance — ${asOfDate.value}.pdf`,
+  })
+}
 
 onMounted(() => {
   if (orgStore.orgId) {

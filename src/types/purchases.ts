@@ -98,6 +98,8 @@ export interface Payment {
   method: string
   reference: string
   notes: string
+  /** 'void' when reversed (e.g. its bill was voided); absent/'active' otherwise. A voided payment keeps its record but posts no GL entry. */
+  status?: 'active' | 'void'
   createdBy: string
   createdAt: Date
 }

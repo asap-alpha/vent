@@ -99,6 +99,8 @@ export interface Receipt {
   method: string
   reference: string
   notes: string
+  /** 'void' when reversed (e.g. its invoice was voided); absent/'active' otherwise. A voided receipt keeps its record but posts no GL entry. */
+  status?: 'active' | 'void'
   createdBy: string
   createdAt: Date
 }

@@ -76,6 +76,9 @@ export const onSalesInvoiceWritten = onDocumentWritten(
 
 export async function buildReceiptEntry(orgId: string, r: any): Promise<DesiredEntry | null> {
   if (!r) return null;
+  // A voided receipt keeps its document (audit trail) but posts no GL entry, so
+  // reconcileDocumentPosting drops any previously-posted entry — same as a void invoice.
+  if (r.status === "void") return null;
   const amount = round2(r.amount || 0);
   if (amount < 0.005) return null;
 

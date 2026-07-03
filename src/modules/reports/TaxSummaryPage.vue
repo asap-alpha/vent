@@ -1,6 +1,17 @@
 <template>
   <div class="tax-summary-report">
-    <PageHeader title="Tax Summary" />
+    <PageHeader title="Tax Summary">
+      <template #actions>
+        <v-btn
+          color="primary"
+          variant="tonal"
+          prepend-icon="mdi-file-pdf-box"
+          @click="downloadPdf"
+        >
+          Download PDF
+        </v-btn>
+      </template>
+    </PageHeader>
 
     <div class="d-flex align-center flex-wrap ga-2 mb-4">
       <v-btn-toggle v-model="period" mandatory density="compact" rounded="lg" variant="outlined">
@@ -63,8 +74,9 @@ import { useTaxStore } from '@/stores/tax'
 import { useOrganizationStore } from '@/stores/organization'
 import { formatCurrency } from '@/utils/currency'
 import { round2 } from '@/utils/accounting'
-import { formatDateISO, startOfLocalDay, endOfLocalDay } from '@/utils/date'
+import { formatDate, formatDateISO, startOfLocalDay, endOfLocalDay } from '@/utils/date'
 import { startOfYear, startOfMonth, startOfQuarter } from 'date-fns'
+import { exportTableReportPDF, reportAmount } from '@/utils/pdf'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const accountsStore = useAccountsStore()
@@ -149,6 +161,27 @@ const rows = computed<Row[]>(() => {
 const totalCollected = computed(() => round2(rows.value.reduce((s, r) => s + r.collected, 0)))
 const totalPaid = computed(() => round2(rows.value.reduce((s, r) => s + r.paid, 0)))
 const totalNet = computed(() => round2(rows.value.reduce((s, r) => s + r.net, 0)))
+
+function downloadPdf() {
+  const org = orgStore.currentOrg
+  if (!org) return
+  exportTableReportPDF({
+    org,
+    currency: currency.value,
+    title: 'Tax Summary',
+    periodLabel: `For the period ${formatDate(startOfLocalDay(fromDate.value))} – ${formatDate(startOfLocalDay(toDate.value))}`,
+    head: [['Tax Account', 'Collected (Output)', 'Paid (Input)', 'Net Payable']],
+    body: rows.value.map((r) => [
+      `${r.code} — ${r.name}`,
+      reportAmount(r.collected),
+      reportAmount(r.paid),
+      reportAmount(r.net),
+    ]),
+    foot: [['Total', reportAmount(totalCollected.value), reportAmount(totalPaid.value), reportAmount(totalNet.value)]],
+    aligns: ['left', 'right', 'right', 'right'],
+    filename: `Tax Summary — ${fromDate.value} to ${toDate.value}.pdf`,
+  })
+}
 
 function subscribeAll() {
   if (!orgStore.orgId) return

@@ -1,6 +1,17 @@
 <template>
   <div class="profit-loss-report">
-    <PageHeader title="Profit &amp; Loss" />
+    <PageHeader title="Profit &amp; Loss">
+      <template #actions>
+        <v-btn
+          color="primary"
+          variant="tonal"
+          prepend-icon="mdi-file-pdf-box"
+          @click="downloadPdf"
+        >
+          Download PDF
+        </v-btn>
+      </template>
+    </PageHeader>
 
     <div class="d-flex align-center flex-wrap ga-2 mb-4">
       <v-btn-toggle v-model="period" mandatory density="compact" rounded="lg" variant="outlined">
@@ -73,8 +84,9 @@ import { useAccountsStore } from '@/stores/accounts'
 import { useTransactionsStore } from '@/stores/transactions'
 import { useOrganizationStore } from '@/stores/organization'
 import { formatCurrency } from '@/utils/currency'
-import { formatDateISO, startOfLocalDay, endOfLocalDay } from '@/utils/date'
+import { formatDate, formatDateISO, startOfLocalDay, endOfLocalDay } from '@/utils/date'
 import { startOfYear, startOfMonth, startOfQuarter } from 'date-fns'
+import { exportStatementPDF, type StatementRow } from '@/utils/pdf'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const accountsStore = useAccountsStore()
@@ -138,6 +150,43 @@ const totalExpenses = computed(() =>
   expenseAccounts.value.reduce((s, a) => s + getBalance(a.id), 0)
 )
 const netIncome = computed(() => totalRevenue.value - totalExpenses.value)
+
+function downloadPdf() {
+  const org = orgStore.currentOrg
+  if (!org) return
+
+  const rows: StatementRow[] = []
+
+  rows.push({ kind: 'heading', label: 'Revenue' })
+  for (const acc of revenueAccounts.value) {
+    rows.push({ kind: 'line', label: `${acc.code} — ${acc.name}`, value: getBalance(acc.id), indent: true })
+  }
+  rows.push({ kind: 'subtotal', label: 'Total Revenue', value: totalRevenue.value })
+  rows.push({ kind: 'spacer' })
+
+  rows.push({ kind: 'heading', label: 'Expenses' })
+  for (const acc of expenseAccounts.value) {
+    rows.push({ kind: 'line', label: `${acc.code} — ${acc.name}`, value: getBalance(acc.id), indent: true })
+  }
+  rows.push({ kind: 'subtotal', label: 'Total Expenses', value: totalExpenses.value })
+  rows.push({ kind: 'spacer' })
+
+  rows.push({
+    kind: 'total',
+    label: netIncome.value >= 0 ? 'Net Profit' : 'Net Loss',
+    value: netIncome.value,
+  })
+
+  exportStatementPDF({
+    org,
+    currency: currency.value,
+    title: 'Profit & Loss Statement',
+    periodLabel: `For the period ${formatDate(startOfLocalDay(fromDate.value))} – ${formatDate(startOfLocalDay(toDate.value))}`,
+    basisLabel: 'Accrual basis',
+    rows,
+    filename: `Profit and Loss — ${fromDate.value} to ${toDate.value}.pdf`,
+  })
+}
 
 onMounted(() => {
   if (orgStore.orgId) {

@@ -6,6 +6,9 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  getDocs,
+  where,
+  writeBatch,
   onSnapshot,
   serverTimestamp,
   query,
@@ -252,6 +255,32 @@ export const useInvoicesStore = defineStore('invoices', () => {
     if (updateData.date instanceof Date) updateData.date = Timestamp.fromDate(updateData.date)
     if (updateData.dueDate instanceof Date) updateData.dueDate = Timestamp.fromDate(updateData.dueDate)
 
+    // Voiding an invoice that has payments: the posting engine drops THIS invoice's
+    // GL entry, but each receipt is a separate document whose GL entry (DR Bank /
+    // CR AR) would survive and orphan — pushing AR negative and overstating cash.
+    // Mark the receipts void (keeping them as an audit record) in the same batch; the
+    // posting engine then drops their GL entries too, keeping the ledger consistent.
+    if (data.status === 'void') {
+      const inv = invoices.value.find((i) => i.id === id)
+      if (inv && (inv.amountPaid || 0) > 0) {
+        const receiptsSnap = await getDocs(
+          query(collection(db, 'organizations', orgStore.orgId, 'receipts'), where('invoiceId', '==', id))
+        )
+        const batch = writeBatch(db)
+        for (const r of receiptsSnap.docs) {
+          batch.update(r.ref, { status: 'void', updatedAt: serverTimestamp() })
+        }
+        batch.update(doc(db, 'organizations', orgStore.orgId, 'salesInvoices', id), {
+          ...updateData,
+          amountPaid: 0,
+          amountDue: 0,
+        })
+        log.info('updateInvoice void with payments — voiding receipts', { id, receipts: receiptsSnap.size })
+        await batch.commit()
+        return
+      }
+    }
+
     log.info('updateInvoice', { id })
     try {
       await updateDoc(
@@ -311,6 +340,7 @@ export const useInvoicesStore = defineStore('invoices', () => {
         method: data.method,
         reference: data.reference,
         notes: data.notes,
+        status: 'active',
         createdBy: authStore.user.uid,
         createdAt: serverTimestamp(),
       })

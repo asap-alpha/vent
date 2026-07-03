@@ -77,6 +77,9 @@ export const onBillWritten = onDocumentWritten(
 
 export async function buildPaymentEntry(orgId: string, p: any): Promise<DesiredEntry | null> {
   if (!p) return null;
+  // A voided payment keeps its document (audit trail) but posts no GL entry, so
+  // reconcileDocumentPosting drops any previously-posted entry — same as a void bill.
+  if (p.status === "void") return null;
   const amount = round2(p.amount || 0);
   if (amount < 0.005) return null;
 

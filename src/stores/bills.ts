@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot,
+  collection, doc, addDoc, updateDoc, deleteDoc, getDocs, where, writeBatch, onSnapshot,
   serverTimestamp, query, orderBy, Timestamp, type Unsubscribe,
 } from 'firebase/firestore'
 import { db } from '@/plugins/firebase'
@@ -219,6 +219,33 @@ export const useBillsStore = defineStore('bills', () => {
     }
     if (updateData.date instanceof Date) updateData.date = Timestamp.fromDate(updateData.date)
     if (updateData.dueDate instanceof Date) updateData.dueDate = Timestamp.fromDate(updateData.dueDate)
+
+    // Voiding a bill that has payments: the posting engine drops THIS bill's GL entry,
+    // but each payment is a separate document whose GL entry (DR AP / CR Bank) would
+    // survive and orphan — pushing AP the wrong way and understating cash. Mark the
+    // payments void (keeping them as an audit record) in the same batch; the posting
+    // engine then drops their GL entries too, keeping the ledger consistent.
+    if (data.status === 'void') {
+      const bill = bills.value.find((b) => b.id === id)
+      if (bill && (bill.amountPaid || 0) > 0) {
+        const paymentsSnap = await getDocs(
+          query(collection(db, 'organizations', orgStore.orgId, 'payments'), where('billId', '==', id))
+        )
+        const batch = writeBatch(db)
+        for (const p of paymentsSnap.docs) {
+          batch.update(p.ref, { status: 'void', updatedAt: serverTimestamp() })
+        }
+        batch.update(doc(db, 'organizations', orgStore.orgId, 'purchaseInvoices', id), {
+          ...updateData,
+          amountPaid: 0,
+          amountDue: 0,
+        })
+        log.info('updateBill void with payments — voiding payments', { id, payments: paymentsSnap.size })
+        await batch.commit()
+        return
+      }
+    }
+
     log.info('updateBill', { id })
     try {
       await updateDoc(
@@ -277,6 +304,7 @@ export const useBillsStore = defineStore('bills', () => {
         method: data.method,
         reference: data.reference,
         notes: data.notes,
+        status: 'active',
         createdBy: authStore.user.uid,
         createdAt: serverTimestamp(),
       })
