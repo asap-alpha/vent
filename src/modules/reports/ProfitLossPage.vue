@@ -73,7 +73,7 @@ import { useAccountsStore } from '@/stores/accounts'
 import { useTransactionsStore } from '@/stores/transactions'
 import { useOrganizationStore } from '@/stores/organization'
 import { formatCurrency } from '@/utils/currency'
-import { formatDateISO } from '@/utils/date'
+import { formatDateISO, startOfLocalDay, endOfLocalDay } from '@/utils/date'
 import { startOfYear, startOfMonth, startOfQuarter } from 'date-fns'
 import PageHeader from '@/components/common/PageHeader.vue'
 
@@ -109,8 +109,8 @@ const expenseAccounts = computed(() =>
 )
 
 function getBalance(accountId: string): number {
-  const from = fromDate.value ? new Date(fromDate.value) : undefined
-  const to = toDate.value ? new Date(toDate.value) : undefined
+  const from = fromDate.value ? startOfLocalDay(fromDate.value) : undefined
+  const to = toDate.value ? endOfLocalDay(toDate.value) : undefined
 
   // Sum debits/credits for this account in date range
   const account = accountsStore.getAccount(accountId)

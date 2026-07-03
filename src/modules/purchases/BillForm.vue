@@ -36,7 +36,13 @@
 
         <v-card-text class="pa-5">
           <div class="text-subtitle-2 font-weight-bold mb-3">Line Items</div>
-          <LineItemsEditor v-model="form.lines" :currency="currency" />
+          <LineItemsEditor
+            v-model="form.lines"
+            :currency="currency"
+            :account-options="expenseAccountOptions"
+            :default-account-id="defaultExpenseAccountId"
+            :tax-codes="taxCodeOptions"
+          />
         </v-card-text>
 
         <v-divider />
@@ -77,6 +83,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useSuppliersStore } from '@/stores/suppliers'
 import { useBillsStore } from '@/stores/bills'
 import { useOrganizationStore } from '@/stores/organization'
+import { useAccountsStore } from '@/stores/accounts'
+import { useTaxStore } from '@/stores/tax'
 import { required } from '@/utils/validation'
 import { formatDateISO } from '@/utils/date'
 import { addDays } from 'date-fns'
@@ -90,6 +98,8 @@ const router = useRouter()
 const suppliersStore = useSuppliersStore()
 const billsStore = useBillsStore()
 const orgStore = useOrganizationStore()
+const accountsStore = useAccountsStore()
+const taxStore = useTaxStore()
 
 const editing = computed(() => !!route.params.id)
 const billId = computed(() => route.params.id as string | undefined)
@@ -113,11 +123,32 @@ const supplierOptions = computed(() =>
   suppliersStore.activeSuppliers.map((s) => ({ title: s.name, value: s.id }))
 )
 
+// Expense accounts (plus asset accounts, e.g. inventory/fixed assets) for line-level
+// mapping; default to the tagged Purchases/General Expenses account.
+const expenseAccountOptions = computed(() =>
+  accountsStore.activeAccounts
+    .filter((a) => a.type === 'expense' || a.type === 'asset')
+    .map((a) => ({ title: `${a.code} — ${a.name}`, value: a.id }))
+)
+const defaultExpenseAccountId = computed(
+  () => accountsStore.getSystemAccount('purchases')?.id
+)
+
+const taxCodeOptions = computed(() =>
+  taxStore.activeTaxCodes.map((t) => ({
+    title: `${t.name} (${t.rate}%)`,
+    value: t.id,
+    rate: t.rate,
+  }))
+)
+
 async function save(status: BillStatus) {
   const { valid } = await formRef.value.validate()
   if (!valid) return
 
-  const lines = form.value.lines.filter((l) => l.description || l.quantity > 0 || l.unitPrice > 0)
+  const lines = form.value.lines
+    .filter((l) => l.description || l.quantity > 0 || l.unitPrice > 0)
+    .map((l) => ({ ...l, accountId: l.accountId || defaultExpenseAccountId.value }))
   if (lines.length === 0) {
     error.value = 'At least one line item is required'
     return
@@ -171,6 +202,8 @@ onMounted(() => {
   if (orgStore.orgId) {
     suppliersStore.subscribe()
     billsStore.subscribe()
+    accountsStore.subscribe()
+    taxStore.subscribe()
   }
   if (editing.value) {
     load()

@@ -56,7 +56,7 @@ import { useAccountsStore } from '@/stores/accounts'
 import { useTransactionsStore } from '@/stores/transactions'
 import { useOrganizationStore } from '@/stores/organization'
 import { formatCurrency } from '@/utils/currency'
-import { formatDateISO } from '@/utils/date'
+import { formatDateISO, endOfLocalDay } from '@/utils/date'
 import { endOfMonth, endOfQuarter, endOfYear, subMonths, subQuarters } from 'date-fns'
 import PageHeader from '@/components/common/PageHeader.vue'
 
@@ -83,7 +83,7 @@ watch(period, (val) => {
 const currency = computed(() => orgStore.currentOrg?.currency || 'GHS')
 
 const rows = computed(() =>
-  transactionsStore.getTrialBalance(asOfDate.value ? new Date(asOfDate.value) : undefined)
+  transactionsStore.getTrialBalance(asOfDate.value ? endOfLocalDay(asOfDate.value) : undefined)
 )
 
 const totalDebits = computed(() => rows.value.reduce((s, r) => s + r.debit, 0))

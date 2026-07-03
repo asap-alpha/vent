@@ -82,7 +82,7 @@ import { useAccountsStore } from '@/stores/accounts'
 import { useTransactionsStore } from '@/stores/transactions'
 import { useOrganizationStore } from '@/stores/organization'
 import { formatCurrency } from '@/utils/currency'
-import { formatDate, formatDateISO } from '@/utils/date'
+import { formatDate, formatDateISO, startOfLocalDay, endOfLocalDay } from '@/utils/date'
 import { startOfYear, startOfMonth, startOfQuarter } from 'date-fns'
 import PageHeader from '@/components/common/PageHeader.vue'
 
@@ -128,8 +128,8 @@ const ledgerEntries = computed(() => {
   if (!selectedAccountId.value) return []
   return transactionsStore.getLedger(
     selectedAccountId.value,
-    fromDate.value ? new Date(fromDate.value) : undefined,
-    toDate.value ? new Date(toDate.value) : undefined
+    fromDate.value ? startOfLocalDay(fromDate.value) : undefined,
+    toDate.value ? endOfLocalDay(toDate.value) : undefined
   )
 })
 

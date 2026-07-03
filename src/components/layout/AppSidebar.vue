@@ -38,6 +38,7 @@
         <v-list-item title="Chart of Accounts" :to="{ name: 'accounts' }" active-class="sidebar-active" />
         <v-list-item title="Journal Entries" :to="{ name: 'journal-entries' }" active-class="sidebar-active" />
         <v-list-item title="General Ledger" :to="{ name: 'general-ledger' }" active-class="sidebar-active" />
+        <v-list-item title="Tax Codes" :to="{ name: 'tax-codes' }" active-class="sidebar-active" />
       </v-list-group>
 
       <!-- Sales -->
@@ -84,6 +85,11 @@
           </template>
         </v-list-item>
         <v-list-item title="Aging Report" :to="{ name: 'aging' }" active-class="sidebar-active">
+          <template v-if="!hasAdvancedReports" #append>
+            <v-icon size="14" color="warning">mdi-lock-outline</v-icon>
+          </template>
+        </v-list-item>
+        <v-list-item title="Tax Summary" :to="{ name: 'tax-summary' }" active-class="sidebar-active">
           <template v-if="!hasAdvancedReports" #append>
             <v-icon size="14" color="warning">mdi-lock-outline</v-icon>
           </template>

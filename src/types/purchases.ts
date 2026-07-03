@@ -1,3 +1,5 @@
+import type { TaxLine } from './tax'
+
 export interface Supplier {
   id: string
   name: string
@@ -17,6 +19,14 @@ export interface BillLine {
   unitPrice: number
   taxRate: number
   amount: number
+  /**
+   * Expense (or asset) account this line posts to. Optional for backward
+   * compatibility; the posting engine falls back to the `purchases` system
+   * account when absent.
+   */
+  accountId?: string
+  /** Tax code applied to this line; `taxRate` holds its derived effective rate. */
+  taxCodeId?: string
 }
 
 export type BillStatus = 'draft' | 'received' | 'paid' | 'partially_paid' | 'overdue' | 'void'
@@ -33,6 +43,8 @@ export interface PurchaseInvoice {
   subtotal: number
   taxTotal: number
   total: number
+  /** Tax grouped by liability account (from tax codes); drives GL tax posting. */
+  taxLines?: TaxLine[]
   amountPaid: number
   amountDue: number
   notes: string

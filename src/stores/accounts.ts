@@ -15,7 +15,7 @@ import {
 import { db } from '@/plugins/firebase'
 import { useOrganizationStore } from './organization'
 import { logger } from '@/utils/logger'
-import type { Account, AccountType } from '@/types/accounting'
+import type { Account, AccountType, SystemAccountType } from '@/types/accounting'
 
 const log = logger('accounts')
 
@@ -42,6 +42,14 @@ export const useAccountsStore = defineStore('accounts', () => {
   function getAccount(id: string): Account | undefined {
     return accounts.value.find((a) => a.id === id)
   }
+
+  /** Resolve a tagged control/system account (AR, AP, tax, default sales/purchases…). */
+  function getSystemAccount(systemType: SystemAccountType): Account | undefined {
+    return accounts.value.find((a) => a.systemType === systemType)
+  }
+
+  /** Whether the org's chart of accounts has been seeded yet. */
+  const hasChartOfAccounts = computed(() => accounts.value.length > 0)
 
   function subscribe() {
     const orgStore = useOrganizationStore()
@@ -125,30 +133,44 @@ export const useAccountsStore = defineStore('accounts', () => {
     await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'accounts', id))
   }
 
+  // Kept for the "seed default accounts" action on an empty org. Mirrors the
+  // server-side DEFAULT_CHART (functions/src/chartOfAccounts.ts) INCLUDING the
+  // systemType control-account tags the posting engine relies on. New orgs are
+  // auto-seeded by the onOrganizationCreated Cloud Function, so this is mainly a
+  // manual fallback — guarded so it can't duplicate an existing chart.
   async function seedDefaultAccounts() {
+    if (accounts.value.length > 0) {
+      log.warn('seedDefaultAccounts skipped — chart already exists')
+      return
+    }
+    const cur = useOrganizationStore().currentOrg?.currency || 'GHS'
+    const base = { parentId: null, currency: cur, isActive: true, description: '' } as const
     const defaults: Array<Omit<Account, 'id' | 'createdAt' | 'updatedAt' | 'balance'>> = [
-      // Assets
-      { code: '1000', name: 'Cash on Hand', type: 'asset', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      { code: '1010', name: 'Bank Account', type: 'asset', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      { code: '1100', name: 'Accounts Receivable', type: 'asset', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      { code: '1200', name: 'Inventory', type: 'asset', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      { code: '1500', name: 'Equipment', type: 'asset', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      // Liabilities
-      { code: '2000', name: 'Accounts Payable', type: 'liability', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      { code: '2100', name: 'Tax Payable', type: 'liability', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      { code: '2200', name: 'Loans Payable', type: 'liability', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      // Equity
-      { code: '3000', name: 'Owner Equity', type: 'equity', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      { code: '3100', name: 'Retained Earnings', type: 'equity', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      // Revenue
-      { code: '4000', name: 'Sales Revenue', type: 'revenue', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      { code: '4100', name: 'Service Revenue', type: 'revenue', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      // Expenses
-      { code: '5000', name: 'Cost of Goods Sold', type: 'expense', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      { code: '6000', name: 'Salaries Expense', type: 'expense', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      { code: '6100', name: 'Rent Expense', type: 'expense', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      { code: '6200', name: 'Utilities Expense', type: 'expense', parentId: null, currency: 'GHS', isActive: true, description: '' },
-      { code: '6300', name: 'Office Supplies', type: 'expense', parentId: null, currency: 'GHS', isActive: true, description: '' },
+      { ...base, code: '1000', name: 'Cash on Hand', type: 'asset' },
+      { ...base, code: '1010', name: 'Bank Account', type: 'asset', systemType: 'bank' },
+      { ...base, code: '1100', name: 'Accounts Receivable', type: 'asset', systemType: 'accounts_receivable' },
+      { ...base, code: '1200', name: 'Inventory', type: 'asset' },
+      { ...base, code: '1400', name: 'Fixed Assets', type: 'asset' },
+      { ...base, code: '1450', name: 'Accumulated Depreciation', type: 'asset' },
+      { ...base, code: '2000', name: 'Accounts Payable', type: 'liability', systemType: 'accounts_payable' },
+      { ...base, code: '2100', name: 'VAT Payable', type: 'liability', systemType: 'tax_payable' },
+      { ...base, code: '2110', name: 'NHIL Payable', type: 'liability' },
+      { ...base, code: '2120', name: 'GETFund Levy Payable', type: 'liability' },
+      { ...base, code: '2130', name: 'COVID-19 Levy Payable', type: 'liability' },
+      { ...base, code: '2200', name: 'Accrued Liabilities', type: 'liability' },
+      { ...base, code: '3000', name: "Owner's Equity", type: 'equity' },
+      { ...base, code: '3100', name: 'Retained Earnings', type: 'equity', systemType: 'retained_earnings' },
+      { ...base, code: '3200', name: 'Opening Balance Equity', type: 'equity', systemType: 'opening_balance_equity' },
+      { ...base, code: '4000', name: 'Sales Revenue', type: 'revenue', systemType: 'sales' },
+      { ...base, code: '4100', name: 'Other Income', type: 'revenue' },
+      { ...base, code: '4900', name: 'Exchange Gain/Loss', type: 'revenue', systemType: 'exchange_gain_loss' },
+      { ...base, code: '5000', name: 'Cost of Goods Sold', type: 'expense' },
+      { ...base, code: '6000', name: 'General Expenses', type: 'expense', systemType: 'purchases' },
+      { ...base, code: '6100', name: 'Rent', type: 'expense' },
+      { ...base, code: '6200', name: 'Utilities', type: 'expense' },
+      { ...base, code: '6300', name: 'Salaries & Wages', type: 'expense' },
+      { ...base, code: '6400', name: 'Bank Charges', type: 'expense' },
+      { ...base, code: '6500', name: 'Office Supplies', type: 'expense' },
     ]
 
     for (const acc of defaults) {
@@ -169,7 +191,9 @@ export const useAccountsStore = defineStore('accounts', () => {
     error,
     activeAccounts,
     accountsByType,
+    hasChartOfAccounts,
     getAccount,
+    getSystemAccount,
     subscribe,
     unsubscribe,
     createAccount,

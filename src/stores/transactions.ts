@@ -17,7 +17,7 @@ import { db } from '@/plugins/firebase'
 import { useOrganizationStore } from './organization'
 import { useAuthStore } from './auth'
 import { useAccountsStore } from './accounts'
-import { isBalanced, totalDebits, totalCredits } from '@/utils/accounting'
+import { isBalanced, totalDebits, totalCredits, round2 } from '@/utils/accounting'
 import type { JournalEntry, JournalLine, LedgerEntry, TrialBalanceRow, AccountType } from '@/types/accounting'
 import { logger } from '@/utils/logger'
 
@@ -123,6 +123,23 @@ export const useTransactionsStore = defineStore('transactions', () => {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
 
+    // Auto-posted entries are owned by the server-side posting engine — editing them
+    // here would desync them from their source document. Change the source instead.
+    const existing = entries.value.find((e) => e.id === id)
+    if (existing?.autoPosted) {
+      throw new Error('This entry was posted automatically from a source document and cannot be changed here. Edit the source document instead.')
+    }
+
+    // Posted entries are immutable — the only permitted change is reversal (a status
+    // flip to 'reversed'). Everything else must go through a reversing entry. This
+    // preserves the audit trail. (postEntry runs while the entry is still a draft.)
+    if (existing?.status === 'posted') {
+      const onlyReversal = Object.keys(data).every((k) => k === 'status') && data.status === 'reversed'
+      if (!onlyReversal) {
+        throw new Error('A posted journal entry cannot be edited. Reverse it instead.')
+      }
+    }
+
     if (data.status === 'posted' && data.lines && !isBalanced(data.lines)) {
       throw new Error('Entry is not balanced')
     }
@@ -149,6 +166,14 @@ export const useTransactionsStore = defineStore('transactions', () => {
   async function deleteEntry(id: string) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
+    const existing = entries.value.find((e) => e.id === id)
+    if (existing?.autoPosted) {
+      throw new Error('This entry was posted automatically from a source document. Delete or void the source document instead.')
+    }
+    // Never hard-delete a posted entry — it would rewrite history. Reverse instead.
+    if (existing?.status === 'posted') {
+      throw new Error('A posted journal entry cannot be deleted. Reverse it instead.')
+    }
     log.info('deleteEntry', { id })
     try {
       await deleteDoc(
@@ -161,7 +186,17 @@ export const useTransactionsStore = defineStore('transactions', () => {
   }
 
   async function postEntry(id: string) {
-    await updateEntry(id, { status: 'posted' })
+    // Re-validate the entry's own lines before posting. Without passing `lines`,
+    // updateEntry's balance guard short-circuits — so an unbalanced draft could be
+    // posted and silently corrupt every derived report. Load and check here.
+    const entry = entries.value.find((e) => e.id === id)
+    if (!entry) throw new Error('Journal entry not found')
+    if (!entry.lines || entry.lines.length < 2 || !isBalanced(entry.lines)) {
+      throw new Error(
+        `Cannot post an unbalanced entry. Debits: ${totalDebits(entry.lines || [])}, Credits: ${totalCredits(entry.lines || [])}`
+      )
+    }
+    await updateEntry(id, { status: 'posted', lines: entry.lines })
   }
 
   async function reverseEntry(id: string) {
@@ -257,7 +292,9 @@ export const useTransactionsStore = defineStore('transactions', () => {
     const accountsStore = useAccountsStore()
     const rows: TrialBalanceRow[] = []
 
-    for (const account of accountsStore.activeAccounts) {
+    // Iterate ALL accounts (not just active) so an account that still carries a
+    // posted balance can't be excluded and silently unbalance the report.
+    for (const account of accountsStore.accounts) {
       let debits = 0
       let credits = 0
       for (const entry of postedEntries.value) {
@@ -274,13 +311,17 @@ export const useTransactionsStore = defineStore('transactions', () => {
 
       if (Math.abs(balance) < 0.005 && debits === 0 && credits === 0) continue
 
+      // Place the balance on its natural side by SIGN, so a contra/negative balance
+      // (e.g. accumulated depreciation, overdrawn bank) lands on the opposite column
+      // instead of being zeroed by Math.max — which would break TB = 0. Round to cents.
+      const debitSide = round2(isDebitNormal ? balance : -balance)
       rows.push({
         accountId: account.id,
         accountCode: account.code,
         accountName: account.name,
         accountType: account.type,
-        debit: isDebitNormal ? Math.max(balance, 0) : 0,
-        credit: !isDebitNormal ? Math.max(balance, 0) : 0,
+        debit: debitSide > 0 ? debitSide : 0,
+        credit: debitSide < 0 ? -debitSide : 0,
       })
     }
 

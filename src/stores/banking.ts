@@ -114,6 +114,7 @@ export const useBankingStore = defineStore('banking', () => {
     type: BankAccountType
     openingBalance: number
     isActive: boolean
+    glAccountId?: string
   }) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
@@ -121,6 +122,7 @@ export const useBankingStore = defineStore('banking', () => {
     try {
       await addDoc(collection(db, 'organizations', orgStore.orgId, 'bankAccounts'), {
         ...data,
+        glAccountId: data.glAccountId || null,
         currentBalance: data.openingBalance,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -171,6 +173,7 @@ export const useBankingStore = defineStore('banking', () => {
     reference: string
     description: string
     category: string
+    categoryAccountId?: string
   }) {
     const orgStore = useOrganizationStore()
     const authStore = useAuthStore()
@@ -188,6 +191,7 @@ export const useBankingStore = defineStore('banking', () => {
         reference: data.reference,
         description: data.description,
         category: data.category,
+        categoryAccountId: data.categoryAccountId || null,
         reconciled: false,
         journalEntryId: null,
         transferAccountId: null,
@@ -376,6 +380,11 @@ export const useBankingStore = defineStore('banking', () => {
     if (!orgStore.orgId) throw new Error('No organization')
     const rec = reconciliations.value.find((r) => r.id === reconciliationId)
     if (!rec) throw new Error('Reconciliation not found')
+    // A reconciliation may only be completed when the cleared balance matches the
+    // statement balance. Enforce here, not just in the UI, so it can't be rubber-stamped.
+    if (Math.abs(rec.statementBalance - reconciledBalance) >= 0.005) {
+      throw new Error('Reconciliation does not balance: cleared total must equal the statement balance')
+    }
     log.info('completeReconciliation', { reconciliationId, reconciledBalance, txnCount: txnIds.length })
     try {
       await updateDoc(
@@ -394,6 +403,19 @@ export const useBankingStore = defineStore('banking', () => {
     }
   }
 
+  /** Abandon an in-progress reconciliation (deletes the draft; nothing is persisted). */
+  async function cancelReconciliation(reconciliationId: string) {
+    const orgStore = useOrganizationStore()
+    if (!orgStore.orgId) throw new Error('No organization')
+    log.info('cancelReconciliation', { reconciliationId })
+    try {
+      await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'reconciliations', reconciliationId))
+    } catch (e: any) {
+      log.error('cancelReconciliation failed', { code: e.code, message: e.message })
+      throw e
+    }
+  }
+
   function $reset() {
     unsubscribe()
     accounts.value = []
@@ -408,7 +430,7 @@ export const useBankingStore = defineStore('banking', () => {
     subscribe, unsubscribe,
     createAccount, updateAccount, deleteAccount,
     recordTransaction, recordTransfer, deleteTransaction, importTransactions,
-    startReconciliation, toggleTransactionReconciled, completeReconciliation,
+    startReconciliation, toggleTransactionReconciled, completeReconciliation, cancelReconciliation,
     $reset,
   }
 })

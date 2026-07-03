@@ -197,6 +197,11 @@ service cloud.firestore {
         allow write: if (isAccountantOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
+      match /taxCodes/{document=**} {
+        allow read: if isMember(orgId) || isSuperAdmin();
+        allow write: if (isAccountantOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
+      }
+
       // ============================================
       // Sales (Clerk+ can write)
       // ============================================

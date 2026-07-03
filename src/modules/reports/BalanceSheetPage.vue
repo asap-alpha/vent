@@ -71,8 +71,12 @@
                   <td class="text-end">{{ formatCurrency(getBalance(acc.id), currency) }}</td>
                 </tr>
                 <tr>
-                  <td>Retained Earnings (current period)</td>
-                  <td class="text-end">{{ formatCurrency(retainedEarnings, currency) }}</td>
+                  <td>Retained Earnings (prior years)</td>
+                  <td class="text-end">{{ formatCurrency(priorYearRetained, currency) }}</td>
+                </tr>
+                <tr>
+                  <td>Current Year Earnings</td>
+                  <td class="text-end">{{ formatCurrency(currentYearEarnings, currency) }}</td>
                 </tr>
                 <tr class="font-weight-bold">
                   <td>Total Equity</td>
@@ -115,7 +119,7 @@ import { useAccountsStore } from '@/stores/accounts'
 import { useTransactionsStore } from '@/stores/transactions'
 import { useOrganizationStore } from '@/stores/organization'
 import { formatCurrency } from '@/utils/currency'
-import { formatDateISO } from '@/utils/date'
+import { formatDateISO, endOfLocalDay } from '@/utils/date'
 import { endOfMonth, endOfQuarter, endOfYear, subMonths, subQuarters } from 'date-fns'
 import PageHeader from '@/components/common/PageHeader.vue'
 
@@ -147,26 +151,50 @@ const assetAccounts = computed(() =>
 const liabilityAccounts = computed(() =>
   accountsStore.accounts.filter((a) => a.type === 'liability').sort((a, b) => a.code.localeCompare(b.code))
 )
+// Exclude the tagged Retained Earnings account — it's presented as an auto-computed
+// figure below (prior-year + current-year earnings), the way Manager/Xero do it.
 const equityAccounts = computed(() =>
-  accountsStore.accounts.filter((a) => a.type === 'equity').sort((a, b) => a.code.localeCompare(b.code))
+  accountsStore.accounts
+    .filter((a) => a.type === 'equity' && a.systemType !== 'retained_earnings')
+    .sort((a, b) => a.code.localeCompare(b.code))
 )
 
 function getBalance(accountId: string): number {
   return transactionsStore.getAccountBalance(
     accountId,
-    asOfDate.value ? new Date(asOfDate.value) : undefined
+    asOfDate.value ? endOfLocalDay(asOfDate.value) : undefined
   )
 }
 
 const totalAssets = computed(() => assetAccounts.value.reduce((s, a) => s + getBalance(a.id), 0))
 const totalLiabilities = computed(() => liabilityAccounts.value.reduce((s, a) => s + getBalance(a.id), 0))
 
-// Retained earnings = Revenue - Expenses (up to as-of date)
-const retainedEarnings = computed(() => {
-  const asOf = asOfDate.value ? new Date(asOfDate.value) : undefined
-  return transactionsStore.sumByType('revenue', undefined, asOf) -
-         transactionsStore.sumByType('expense', undefined, asOf)
+const asOf = computed(() => (asOfDate.value ? endOfLocalDay(asOfDate.value) : new Date()))
+
+// First day of the fiscal year containing `d`, honoring the org's fiscalYearStart
+// (a month, 1-12; defaults to January).
+function fiscalYearStartFor(d: Date): Date {
+  const startMonth = orgStore.currentOrg?.fiscalYearStart || 1
+  const year = d.getMonth() + 1 >= startMonth ? d.getFullYear() : d.getFullYear() - 1
+  return new Date(year, startMonth - 1, 1, 0, 0, 0, 0)
+}
+
+// Retained earnings accumulated from all fiscal years BEFORE the current one.
+const priorYearRetained = computed(() => {
+  const priorEnd = new Date(fiscalYearStartFor(asOf.value).getTime() - 1)
+  return transactionsStore.sumByType('revenue', undefined, priorEnd) -
+         transactionsStore.sumByType('expense', undefined, priorEnd)
 })
+
+// Net income earned within the current fiscal year, up to the as-of date.
+const currentYearEarnings = computed(() => {
+  const fyStart = fiscalYearStartFor(asOf.value)
+  return transactionsStore.sumByType('revenue', fyStart, asOf.value) -
+         transactionsStore.sumByType('expense', fyStart, asOf.value)
+})
+
+// Total retained earnings up to the as-of date (used for the balancing check).
+const retainedEarnings = computed(() => priorYearRetained.value + currentYearEarnings.value)
 
 const totalEquity = computed(
   () => equityAccounts.value.reduce((s, a) => s + getBalance(a.id), 0) + retainedEarnings.value

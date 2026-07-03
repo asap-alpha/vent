@@ -7,6 +7,7 @@ import {
   persistentMultipleTabManager,
   connectFirestoreEmulator,
 } from 'firebase/firestore'
+import { getFunctions, connectFunctionsEmulator } from 'firebase/functions'
 import { logger } from '@/utils/logger'
 
 const log = logger('firebase')
@@ -37,11 +38,15 @@ export const db = initializeFirestore(app, {
   }),
 })
 
+// Callable Cloud Functions (chart-of-accounts seed, ledger backfill, etc.).
+export const functions = getFunctions(app)
+
 // Connect to emulators in development
 if (import.meta.env.DEV && import.meta.env.VITE_USE_EMULATORS === 'true') {
   log.info('Connecting to local emulators')
   connectAuthEmulator(auth, 'http://localhost:9099')
   connectFirestoreEmulator(db, 'localhost', 8080)
+  connectFunctionsEmulator(functions, 'localhost', 5001)
 }
 
 // Suppress noisy Firestore transport logs (QUIC errors, reconnects)
