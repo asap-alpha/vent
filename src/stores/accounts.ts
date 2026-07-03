@@ -6,6 +6,7 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  getDocs,
   onSnapshot,
   serverTimestamp,
   query,
@@ -130,6 +131,20 @@ export const useAccountsStore = defineStore('accounts', () => {
   async function deleteAccount(id: string) {
     const orgStore = useOrganizationStore()
     if (!orgStore.orgId) throw new Error('No organization')
+
+    // Never hard-delete an account that has journal activity. Its posted lines would
+    // be orphaned — still counted on their counter-account side but dropped from this
+    // account — silently unbalancing the Trial Balance, Balance Sheet and Cash Flow.
+    // A one-shot read (not the live store) so the guard holds even if the transactions
+    // store isn't subscribed on the caller's page. Deactivate the account instead.
+    const snap = await getDocs(collection(db, 'organizations', orgStore.orgId, 'journalEntries'))
+    const inUse = snap.docs.some((d) =>
+      ((d.data().lines as Array<{ accountId?: string }>) || []).some((l) => l.accountId === id)
+    )
+    if (inUse) {
+      throw new Error('This account has journal entries and cannot be deleted. Deactivate it instead.')
+    }
+
     await deleteDoc(doc(db, 'organizations', orgStore.orgId, 'accounts', id))
   }
 

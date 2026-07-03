@@ -79,6 +79,7 @@
         </template>
         <v-list-item title="Profit & Loss" :to="{ name: 'profit-loss' }" active-class="sidebar-active" />
         <v-list-item title="Balance Sheet" :to="{ name: 'balance-sheet' }" active-class="sidebar-active" />
+        <v-list-item title="Cash Flow" :to="{ name: 'cash-flow' }" active-class="sidebar-active" />
         <v-list-item title="Trial Balance" :to="{ name: 'trial-balance' }" active-class="sidebar-active">
           <template v-if="!hasAdvancedReports" #append>
             <v-icon size="14" color="warning">mdi-lock-outline</v-icon>

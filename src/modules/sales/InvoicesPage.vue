@@ -45,6 +45,8 @@
         :loading="invoicesStore.loading"
         :items-per-page="25"
         :search="search"
+        item-value="id"
+        show-expand
         @click:row="onRowClick"
       >
         <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
@@ -82,6 +84,33 @@
           <v-btn icon="mdi-file-pdf-box" size="x-small" variant="text" title="Download PDF" @click.stop="downloadPDF(item)" />
           <v-btn icon="mdi-pencil" size="x-small" variant="text" @click.stop="editInvoice(item.id)" />
           <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click.stop="confirmDelete(item.id)" />
+        </template>
+        <template #expanded-row="{ columns, item }">
+          <tr class="expanded-payments">
+            <td :colspan="columns.length" class="pa-0">
+              <div class="px-6 py-4">
+                <div class="text-caption text-medium-emphasis text-uppercase mb-2">Payments received</div>
+                <template v-if="receiptsFor(item.id).length">
+                  <div
+                    v-for="r in receiptsFor(item.id)"
+                    :key="r.id"
+                    class="d-flex align-center ga-3 py-1"
+                    :class="{ 'payment-void': r.status === 'void' }"
+                  >
+                    <span style="min-width: 96px">{{ formatDate(r.date) }}</span>
+                    <span style="min-width: 90px">{{ r.method }}</span>
+                    <span class="text-medium-emphasis">{{ r.reference || '—' }}</span>
+                    <v-chip v-if="r.status === 'void'" size="x-small" color="grey" variant="tonal" class="ms-1">
+                      Void
+                    </v-chip>
+                    <v-spacer />
+                    <span class="font-weight-medium">{{ formatCurrency(r.amount, currency) }}</span>
+                  </div>
+                </template>
+                <div v-else class="text-caption text-medium-emphasis">No payments recorded.</div>
+              </div>
+            </td>
+          </tr>
         </template>
         <template #no-data>
           <EmptyState
@@ -308,6 +337,14 @@ async function saveReceipt() {
   }
 }
 
+// Receipts for a given invoice, oldest first — shown in the expandable row.
+// Voided receipts (their invoice was voided) are kept for the audit trail.
+function receiptsFor(invoiceId: string) {
+  return invoicesStore.receipts
+    .filter((r) => r.invoiceId === invoiceId)
+    .sort((a, b) => a.date.getTime() - b.date.getTime())
+}
+
 onMounted(() => {
   if (orgStore.orgId) {
     invoicesStore.subscribe()
@@ -322,3 +359,17 @@ watch(() => orgStore.orgId, (id) => {
   }
 })
 </script>
+
+<style scoped>
+.expanded-payments {
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+/* Voided receipts stay visible for the audit trail but read as inactive. */
+.payment-void {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.payment-void .v-chip {
+  text-decoration: none;
+}
+</style>

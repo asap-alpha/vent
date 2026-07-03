@@ -45,6 +45,8 @@
         :loading="billsStore.loading"
         :items-per-page="25"
         :search="search"
+        item-value="id"
+        show-expand
         @click:row="onRowClick"
       >
         <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
@@ -73,6 +75,33 @@
           <v-btn icon="mdi-file-pdf-box" size="x-small" variant="text" title="Download PDF" @click.stop="downloadPDF(item)" />
           <v-btn icon="mdi-pencil" size="x-small" variant="text" @click.stop="editBill(item.id)" />
           <v-btn icon="mdi-delete" size="x-small" variant="text" color="error" @click.stop="confirmDelete(item.id)" />
+        </template>
+        <template #expanded-row="{ columns, item }">
+          <tr class="expanded-payments">
+            <td :colspan="columns.length" class="pa-0">
+              <div class="px-6 py-4">
+                <div class="text-caption text-medium-emphasis text-uppercase mb-2">Payments made</div>
+                <template v-if="paymentsFor(item.id).length">
+                  <div
+                    v-for="p in paymentsFor(item.id)"
+                    :key="p.id"
+                    class="d-flex align-center ga-3 py-1"
+                    :class="{ 'payment-void': p.status === 'void' }"
+                  >
+                    <span style="min-width: 96px">{{ formatDate(p.date) }}</span>
+                    <span style="min-width: 90px">{{ p.method }}</span>
+                    <span class="text-medium-emphasis">{{ p.reference || '—' }}</span>
+                    <v-chip v-if="p.status === 'void'" size="x-small" color="grey" variant="tonal" class="ms-1">
+                      Void
+                    </v-chip>
+                    <v-spacer />
+                    <span class="font-weight-medium">{{ formatCurrency(p.amount, currency) }}</span>
+                  </div>
+                </template>
+                <div v-else class="text-caption text-medium-emphasis">No payments recorded.</div>
+              </div>
+            </td>
+          </tr>
         </template>
         <template #no-data>
           <EmptyState
@@ -278,6 +307,14 @@ async function savePayment() {
   }
 }
 
+// Payments for a given bill, oldest first — shown in the expandable row.
+// Voided payments (their bill was voided) are kept for the audit trail.
+function paymentsFor(billId: string) {
+  return billsStore.payments
+    .filter((p) => p.billId === billId)
+    .sort((a, b) => a.date.getTime() - b.date.getTime())
+}
+
 onMounted(() => {
   if (orgStore.orgId) {
     billsStore.subscribe()
@@ -292,3 +329,17 @@ watch(() => orgStore.orgId, (id) => {
   }
 })
 </script>
+
+<style scoped>
+.expanded-payments {
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+/* Voided payments stay visible for the audit trail but read as inactive. */
+.payment-void {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.payment-void .v-chip {
+  text-decoration: none;
+}
+</style>

@@ -1,6 +1,17 @@
 <template>
   <div class="aging-report">
-    <PageHeader title="Aging Report" />
+    <PageHeader title="Aging Report">
+      <template #actions>
+        <v-btn
+          color="primary"
+          variant="tonal"
+          prepend-icon="mdi-file-pdf-box"
+          @click="downloadPdf"
+        >
+          Download PDF
+        </v-btn>
+      </template>
+    </PageHeader>
 
     <v-card class="mb-4">
       <v-tabs v-model="mode" color="primary" grow>
@@ -87,6 +98,8 @@ import { useCustomersStore } from '@/stores/customers'
 import { useSuppliersStore } from '@/stores/suppliers'
 import { useOrganizationStore } from '@/stores/organization'
 import { formatCurrency } from '@/utils/currency'
+import { formatDate } from '@/utils/date'
+import { exportTableReportPDF, reportAmount } from '@/utils/pdf'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const invoicesStore = useInvoicesStore()
@@ -175,6 +188,39 @@ const headers = computed(() => [
   { title: '90+', key: 'b90plus', align: 'end' as const, width: 120 },
   { title: 'Total', key: 'total', align: 'end' as const, width: 140 },
 ])
+
+function downloadPdf() {
+  const org = orgStore.currentOrg
+  if (!org) return
+  const partyLabel = mode.value === 'receivables' ? 'Customer' : 'Supplier'
+  exportTableReportPDF({
+    org,
+    currency: currency.value,
+    title: `Aging Report — ${mode.value === 'receivables' ? 'Receivables' : 'Payables'}`,
+    periodLabel: `As at ${formatDate(new Date())}`,
+    head: [[partyLabel, 'Current', '1-30', '31-60', '61-90', '90+', 'Total']],
+    body: rows.value.map((r) => [
+      r.partyName,
+      reportAmount(r.current),
+      reportAmount(r.b30),
+      reportAmount(r.b60),
+      reportAmount(r.b90),
+      reportAmount(r.b90plus),
+      reportAmount(r.total),
+    ]),
+    foot: [[
+      'Total',
+      reportAmount(totals.value.current),
+      reportAmount(totals.value.b30),
+      reportAmount(totals.value.b60),
+      reportAmount(totals.value.b90),
+      reportAmount(totals.value.b90plus),
+      reportAmount(totals.value.total),
+    ]],
+    aligns: ['left', 'right', 'right', 'right', 'right', 'right', 'right'],
+    filename: `Aging Report — ${mode.value}.pdf`,
+  })
+}
 
 onMounted(() => {
   if (orgStore.orgId) {

@@ -180,6 +180,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/reports/cash-flow',
+      name: 'cash-flow',
+      component: () => import('@/modules/reports/CashFlowPage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/reports/trial-balance',
       name: 'trial-balance',
       component: () => import('@/modules/reports/TrialBalancePage.vue'),

@@ -60,16 +60,18 @@ service cloud.firestore {
     }
 
     // A self-service member add is only legitimate when it matches a real pending
-    // invitation for THIS org and the SAME role. The member doc must carry the
-    // invitationId. Invitation ids are random/secret (delivered by email), so this
-    // closes the "write yourself in as owner" hole.
+    // invitation for THIS org, the SAME role, AND addressed to the caller's own
+    // email. The member doc must carry the invitationId. Binding to the email (not
+    // just the secret id) means a leaked/guessed invitation id can't be redeemed by
+    // anyone but its intended recipient — closes the "write yourself in as owner" hole.
     function hasMatchingInvite(orgId) {
       let invId = request.resource.data.get('invitationId', '');
       return invId != '' &&
         exists(/databases/$(database)/documents/invitations/$(invId)) &&
         get(/databases/$(database)/documents/invitations/$(invId)).data.orgId == orgId &&
         get(/databases/$(database)/documents/invitations/$(invId)).data.role == request.resource.data.role &&
-        get(/databases/$(database)/documents/invitations/$(invId)).data.status == 'pending';
+        get(/databases/$(database)/documents/invitations/$(invId)).data.status == 'pending' &&
+        get(/databases/$(database)/documents/invitations/$(invId)).data.email == request.auth.token.email;
     }
 
     // Owners may edit only business fields, and may cancel their own subscription.
@@ -90,8 +92,17 @@ service cloud.firestore {
     // ============================================================
     match /users/{userId} {
       allow read: if isSignedIn() && (request.auth.uid == userId || isSuperAdmin());
-      allow create: if isSignedIn() && request.auth.uid == userId;
-      allow update: if isSignedIn() && (request.auth.uid == userId || isSuperAdmin());
+      // A user may create/update their OWN profile, but may never set or change
+      // `platformRole` — that field is what isSuperAdmin() trusts, so a self-write of
+      // 'super_admin' would be a full platform takeover. Only a super admin (or the
+      // Admin SDK, which bypasses rules) may change it.
+      allow create: if isSignedIn() && request.auth.uid == userId &&
+        request.resource.data.get('platformRole', 'user') == 'user';
+      allow update: if isSignedIn() && (
+        isSuperAdmin() ||
+        (request.auth.uid == userId &&
+         request.resource.data.get('platformRole', 'user') == resource.data.get('platformRole', 'user'))
+      );
       allow delete: if isSuperAdmin();
     }
 
@@ -107,14 +118,27 @@ service cloud.firestore {
         isAdminOrAbove(resource.data.orgId) ||
         isSuperAdmin()
       );
+      // Admins/owners may invite up to admin; only a super admin may create an
+      // 'owner' invitation. Without this, an admin could mint an owner (directly or
+      // by inviting a confederate/their own email) and bypass "no minting owners".
       allow create: if isSignedIn() && (
-        isAdminOrAbove(request.resource.data.orgId) ||
-        isSuperAdmin()
+        isSuperAdmin() ||
+        (isAdminOrAbove(request.resource.data.orgId) && request.resource.data.role != 'owner')
       );
+      // Admins/super admins may edit an invitation freely. The invited user (matched
+      // by email) may ONLY move it to accepted/declined — orgId, role and email stay
+      // pinned. Otherwise an invitee could rewrite their own invite (e.g. to
+      // role:'owner' or a different orgId) and then join as owner anywhere.
       allow update: if isSignedIn() && (
-        resource.data.email == request.auth.token.email ||
         isAdminOrAbove(resource.data.orgId) ||
-        isSuperAdmin()
+        isSuperAdmin() ||
+        (
+          resource.data.email == request.auth.token.email &&
+          request.resource.data.orgId == resource.data.orgId &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.email == resource.data.email &&
+          request.resource.data.status in ['accepted', 'declined']
+        )
       );
       allow delete: if isSignedIn() && (
         isAdminOrAbove(resource.data.orgId) ||
@@ -140,8 +164,22 @@ service cloud.firestore {
       // Members can read their org; super admins can read all
       allow read: if isMember(orgId) || isSuperAdmin();
 
-      // Any signed-in user can create (it'll be in 'pending' status)
-      allow create: if isSignedIn() && request.auth.uid == request.resource.data.createdBy;
+      // Any signed-in user can create their own org, but ONLY in the genuine
+      // self-serve starting state: pending review, Standard plan, on trial, with no
+      // billing period yet. This blocks self-approval (status:'approved') and
+      // self-granting a premium plan/long trial — those are platform-managed (super
+      // admin or the payment backend via the Admin SDK). Values here must match
+      // createOrganization() in src/stores/organization.ts.
+      allow create: if isSuperAdmin() || (
+        isSignedIn() &&
+        request.auth.uid == request.resource.data.createdBy &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.plan == 'standard' &&
+        request.resource.data.subscriptionStatus == 'trialing' &&
+        request.resource.data.currentPeriodStart == null &&
+        request.resource.data.currentPeriodEnd == null &&
+        request.resource.data.trialEndsAt < request.time + duration.value(30, 'd')
+      );
 
       // Super admins can update any org (approval, plan, trial). Owners are limited
       // to business fields + cancelling their own subscription — see ownerOrgEdit.

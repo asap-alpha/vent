@@ -1,6 +1,17 @@
 <template>
   <div class="balance-sheet-report">
-    <PageHeader title="Balance Sheet" />
+    <PageHeader title="Balance Sheet">
+      <template #actions>
+        <v-btn
+          color="primary"
+          variant="tonal"
+          prepend-icon="mdi-file-pdf-box"
+          @click="downloadPdf"
+        >
+          Download PDF
+        </v-btn>
+      </template>
+    </PageHeader>
 
     <div class="d-flex align-center flex-wrap ga-2 mb-4">
       <v-btn-toggle v-model="period" mandatory density="compact" rounded="lg" variant="outlined">
@@ -70,6 +81,10 @@
                   <td>{{ acc.code }} — {{ acc.name }}</td>
                   <td class="text-end">{{ formatCurrency(getBalance(acc.id), currency) }}</td>
                 </tr>
+                <tr v-if="retainedAccountBalance !== 0 && retainedAccount">
+                  <td>{{ retainedAccount.code }} — {{ retainedAccount.name }} (posted)</td>
+                  <td class="text-end">{{ formatCurrency(retainedAccountBalance, currency) }}</td>
+                </tr>
                 <tr>
                   <td>Retained Earnings (prior years)</td>
                   <td class="text-end">{{ formatCurrency(priorYearRetained, currency) }}</td>
@@ -119,8 +134,9 @@ import { useAccountsStore } from '@/stores/accounts'
 import { useTransactionsStore } from '@/stores/transactions'
 import { useOrganizationStore } from '@/stores/organization'
 import { formatCurrency } from '@/utils/currency'
-import { formatDateISO, endOfLocalDay } from '@/utils/date'
+import { formatDate, formatDateISO, endOfLocalDay } from '@/utils/date'
 import { endOfMonth, endOfQuarter, endOfYear, subMonths, subQuarters } from 'date-fns'
+import { exportStatementPDF, type StatementRow } from '@/utils/pdf'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const accountsStore = useAccountsStore()
@@ -157,6 +173,19 @@ const equityAccounts = computed(() =>
   accountsStore.accounts
     .filter((a) => a.type === 'equity' && a.systemType !== 'retained_earnings')
     .sort((a, b) => a.code.localeCompare(b.code))
+)
+
+// The tagged Retained Earnings account can itself carry a posted balance — opening
+// balances entered at setup, or year-end closing entries. That balance is shown on
+// its own line and added to equity; dropping it (as before) made those postings
+// vanish and the sheet stop balancing. It does NOT double-count the derived earnings
+// below: a closing entry that moves net income into this account also removes it from
+// revenue/expense, so priorYearRetained/currentYearEarnings drop by the same amount.
+const retainedAccount = computed(() =>
+  accountsStore.accounts.find((a) => a.systemType === 'retained_earnings')
+)
+const retainedAccountBalance = computed(() =>
+  retainedAccount.value ? getBalance(retainedAccount.value.id) : 0
 )
 
 function getBalance(accountId: string): number {
@@ -197,12 +226,66 @@ const currentYearEarnings = computed(() => {
 const retainedEarnings = computed(() => priorYearRetained.value + currentYearEarnings.value)
 
 const totalEquity = computed(
-  () => equityAccounts.value.reduce((s, a) => s + getBalance(a.id), 0) + retainedEarnings.value
+  () =>
+    equityAccounts.value.reduce((s, a) => s + getBalance(a.id), 0) +
+    retainedAccountBalance.value +
+    retainedEarnings.value
 )
 
 const balanced = computed(
   () => Math.abs(totalAssets.value - (totalLiabilities.value + totalEquity.value)) < 0.005
 )
+
+function downloadPdf() {
+  const org = orgStore.currentOrg
+  if (!org) return
+
+  const rows: StatementRow[] = []
+
+  rows.push({ kind: 'heading', label: 'Assets' })
+  for (const acc of assetAccounts.value) {
+    rows.push({ kind: 'line', label: `${acc.code} — ${acc.name}`, value: getBalance(acc.id), indent: true })
+  }
+  rows.push({ kind: 'total', label: 'Total Assets', value: totalAssets.value })
+  rows.push({ kind: 'spacer' })
+
+  rows.push({ kind: 'heading', label: 'Liabilities' })
+  for (const acc of liabilityAccounts.value) {
+    rows.push({ kind: 'line', label: `${acc.code} — ${acc.name}`, value: getBalance(acc.id), indent: true })
+  }
+  rows.push({ kind: 'subtotal', label: 'Total Liabilities', value: totalLiabilities.value })
+  rows.push({ kind: 'spacer' })
+
+  rows.push({ kind: 'heading', label: 'Equity' })
+  for (const acc of equityAccounts.value) {
+    rows.push({ kind: 'line', label: `${acc.code} — ${acc.name}`, value: getBalance(acc.id), indent: true })
+  }
+  if (retainedAccountBalance.value !== 0 && retainedAccount.value) {
+    rows.push({ kind: 'line', label: `${retainedAccount.value.code} — ${retainedAccount.value.name} (posted)`, value: retainedAccountBalance.value, indent: true })
+  }
+  rows.push({ kind: 'line', label: 'Retained Earnings (prior years)', value: priorYearRetained.value, indent: true })
+  rows.push({ kind: 'line', label: 'Current Year Earnings', value: currentYearEarnings.value, indent: true })
+  rows.push({ kind: 'subtotal', label: 'Total Equity', value: totalEquity.value })
+  rows.push({ kind: 'total', label: 'Total Liabilities + Equity', value: totalLiabilities.value + totalEquity.value })
+
+  if (!balanced.value) {
+    rows.push({ kind: 'spacer' })
+    rows.push({
+      kind: 'note',
+      label: `Balance sheet does not balance. Difference: ${formatCurrency(Math.abs(totalAssets.value - (totalLiabilities.value + totalEquity.value)), currency.value)}`,
+    })
+  }
+
+  exportStatementPDF({
+    org,
+    currency: currency.value,
+    title: 'Balance Sheet',
+    periodLabel: `As at ${formatDate(asOf.value)}`,
+    basisLabel: 'Accrual basis',
+    rows,
+    filename: `Balance Sheet — ${asOfDate.value}.pdf`,
+  })
+}
 
 onMounted(() => {
   if (orgStore.orgId) {
