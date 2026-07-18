@@ -40,6 +40,14 @@ export { onBankTransactionWritten } from "./bankingPosting";
 // One-time (re-runnable) backfill of pre-existing subledger docs into the ledger.
 export { backfillLedger } from "./backfill";
 
+// Perpetual weighted-average inventory: recompute stock + COGS on invoice/bill writes,
+// plus a manual "Recalculate stock" callable.
+export {
+  onInvoiceInventoryWritten,
+  onBillInventoryWritten,
+  recalcInventory,
+} from "./inventory";
+
 // ================================================================
 // 1. INVITATION EMAIL — triggered when /invitations/{id} is created
 // ================================================================

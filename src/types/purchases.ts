@@ -27,6 +27,8 @@ export interface BillLine {
   accountId?: string
   /** Tax code applied to this line; `taxRate` holds its derived effective rate. */
   taxCodeId?: string
+  /** Catalog item this line was created from (set when an item is picked). */
+  itemId?: string
 }
 
 export type BillStatus = 'draft' | 'received' | 'paid' | 'partially_paid' | 'overdue' | 'void'

@@ -42,6 +42,7 @@
             :account-options="expenseAccountOptions"
             :default-account-id="defaultExpenseAccountId"
             :tax-codes="taxCodeOptions"
+            :item-options="itemOptions"
           />
         </v-card-text>
 
@@ -84,6 +85,7 @@ import { useSuppliersStore } from '@/stores/suppliers'
 import { useBillsStore } from '@/stores/bills'
 import { useOrganizationStore } from '@/stores/organization'
 import { useAccountsStore } from '@/stores/accounts'
+import { useItemsStore } from '@/stores/items'
 import { useTaxStore } from '@/stores/tax'
 import { required } from '@/utils/validation'
 import { formatDateISO } from '@/utils/date'
@@ -99,6 +101,7 @@ const suppliersStore = useSuppliersStore()
 const billsStore = useBillsStore()
 const orgStore = useOrganizationStore()
 const accountsStore = useAccountsStore()
+const itemsStore = useItemsStore()
 const taxStore = useTaxStore()
 
 const editing = computed(() => !!route.params.id)
@@ -139,6 +142,24 @@ const taxCodeOptions = computed(() =>
     title: `${t.name} (${t.rate}%)`,
     value: t.id,
     rate: t.rate,
+  }))
+)
+
+// Catalog items resolved for the PURCHASE context: purchase cost + the account stock
+// (inventory items → Inventory asset, so bills capitalize stock) or expense (services)
+// posts to.
+const itemOptions = computed(() =>
+  itemsStore.activeItems.map((it) => ({
+    title: it.sku ? `${it.sku} — ${it.name}` : it.name,
+    value: it.id,
+    description: it.description || it.name,
+    accountId:
+      it.kind === 'inventory'
+        ? it.inventoryAccountId || accountsStore.getSystemAccount('inventory')?.id
+        : it.expenseAccountId || defaultExpenseAccountId.value,
+    unitPrice: it.purchasePrice || 0,
+    taxCodeId: it.defaultTaxCodeId,
+    taxRate: it.defaultTaxCodeId ? taxStore.getTaxCode(it.defaultTaxCodeId)?.rate || 0 : 0,
   }))
 )
 
@@ -203,6 +224,7 @@ onMounted(() => {
     suppliersStore.subscribe()
     billsStore.subscribe()
     accountsStore.subscribe()
+    itemsStore.subscribe()
     taxStore.subscribe()
   }
   if (editing.value) {

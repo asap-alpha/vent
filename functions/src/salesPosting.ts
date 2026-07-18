@@ -21,7 +21,7 @@ export async function buildInvoiceEntry(orgId: string, inv: any): Promise<Desire
   const status = inv?.status;
   if (!inv || status === "draft" || status === "void") return null;
 
-  const accts = await resolveSystemAccounts(orgId, ["accounts_receivable", "tax_payable", "sales"]);
+  const accts = await resolveSystemAccounts(orgId, ["accounts_receivable", "tax_payable", "sales", "inventory", "cogs"]);
   const arId = accts.accounts_receivable;
   if (!arId) throw new Error("no accounts_receivable control account (seed the chart of accounts)");
 
@@ -47,6 +47,17 @@ export async function buildInvoiceEntry(orgId: string, inv: any): Promise<Desire
     credit: 0,
     description: `Invoice ${inv.number || ""}${inv.customerName ? " — " + inv.customerName : ""}`,
   });
+
+  // Cost of goods sold: the inventory engine stamps each inventory line's weighted-average
+  // cost onto `line.cost`. Fold a DR COGS / CR Inventory pair (self-balancing) into this
+  // same entry. Skipped cleanly if the org has no inventory/COGS accounts tagged.
+  const cogsTotal = round2(
+    (inv.lines || []).reduce((s: number, l: any) => s + (l?.itemId && l?.cost ? l.cost : 0), 0)
+  );
+  if (cogsTotal >= 0.005 && accts.cogs && accts.inventory) {
+    lines.push({ accountId: accts.cogs, debit: cogsTotal, credit: 0, description: `Cost of goods sold — invoice ${inv.number || ""}`.trim() });
+    lines.push({ accountId: accts.inventory, debit: 0, credit: cogsTotal, description: `Inventory sold — invoice ${inv.number || ""}`.trim() });
+  }
 
   return {
     date: inv.date,

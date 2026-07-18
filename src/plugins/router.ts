@@ -84,6 +84,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/items',
+      name: 'items',
+      component: () => import('@/modules/sales/ItemsPage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/invoices',
       name: 'invoices',
       component: () => import('@/modules/sales/InvoicesPage.vue'),
@@ -183,6 +189,12 @@ const router = createRouter({
       path: '/reports/cash-flow',
       name: 'cash-flow',
       component: () => import('@/modules/reports/CashFlowPage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/reports/inventory',
+      name: 'inventory',
+      component: () => import('@/modules/reports/InventoryPage.vue'),
       meta: { requiresAuth: true },
     },
     {

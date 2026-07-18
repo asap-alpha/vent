@@ -27,6 +27,14 @@ export interface InvoiceLine {
   accountId?: string
   /** Tax code applied to this line; `taxRate` holds its derived effective rate. */
   taxCodeId?: string
+  /** Catalog item this line was created from (set when an item is picked). */
+  itemId?: string
+  /**
+   * Total cost of goods sold for this line — server-stamped by the inventory
+   * recompute engine for inventory-item sales, at weighted-average cost. Absent/0
+   * means no COGS leg is posted. Clients never set this.
+   */
+  cost?: number
 }
 
 export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'partially_paid' | 'overdue' | 'void'

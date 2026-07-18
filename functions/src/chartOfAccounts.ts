@@ -15,7 +15,9 @@ export type SystemAccountType =
   | "sales"
   | "purchases"
   | "bank"
-  | "exchange_gain_loss";
+  | "exchange_gain_loss"
+  | "inventory"
+  | "cogs";
 
 export interface SeedAccount {
   code: string;
@@ -31,7 +33,8 @@ export const DEFAULT_CHART: SeedAccount[] = [
   { code: "1010", name: "Bank Account", type: "asset", systemType: "bank" },
   { code: "1100", name: "Accounts Receivable", type: "asset", systemType: "accounts_receivable",
     description: "Money owed to you by customers (control account)." },
-  { code: "1200", name: "Inventory", type: "asset" },
+  { code: "1200", name: "Inventory", type: "asset", systemType: "inventory",
+    description: "Stock held for resale (control account for perpetual inventory)." },
   { code: "1400", name: "Fixed Assets", type: "asset" },
   { code: "1450", name: "Accumulated Depreciation", type: "asset",
     description: "Contra-asset; carries a credit balance." },
@@ -63,7 +66,8 @@ export const DEFAULT_CHART: SeedAccount[] = [
   { code: "4900", name: "Exchange Gain/Loss", type: "revenue", systemType: "exchange_gain_loss" },
 
   // ---- Cost of sales ----
-  { code: "5000", name: "Cost of Goods Sold", type: "expense" },
+  { code: "5000", name: "Cost of Goods Sold", type: "expense", systemType: "cogs",
+    description: "Cost of inventory sold, posted automatically at weighted-average cost." },
 
   // ---- Expenses ----
   { code: "6000", name: "General Expenses", type: "expense", systemType: "purchases",

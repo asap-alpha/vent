@@ -42,6 +42,7 @@
             :account-options="incomeAccountOptions"
             :default-account-id="defaultIncomeAccountId"
             :tax-codes="taxCodeOptions"
+            :item-options="itemOptions"
           />
         </v-card-text>
 
@@ -84,6 +85,7 @@ import { useCustomersStore } from '@/stores/customers'
 import { useInvoicesStore } from '@/stores/invoices'
 import { useOrganizationStore } from '@/stores/organization'
 import { useAccountsStore } from '@/stores/accounts'
+import { useItemsStore } from '@/stores/items'
 import { useTaxStore } from '@/stores/tax'
 import { required } from '@/utils/validation'
 import { formatDateISO } from '@/utils/date'
@@ -99,6 +101,7 @@ const customersStore = useCustomersStore()
 const invoicesStore = useInvoicesStore()
 const orgStore = useOrganizationStore()
 const accountsStore = useAccountsStore()
+const itemsStore = useItemsStore()
 const taxStore = useTaxStore()
 
 const editing = computed(() => !!route.params.id)
@@ -138,6 +141,19 @@ const taxCodeOptions = computed(() =>
     title: `${t.name} (${t.rate}%)`,
     value: t.id,
     rate: t.rate,
+  }))
+)
+
+// Catalog items resolved for the SALES context: income account + sales price.
+const itemOptions = computed(() =>
+  itemsStore.activeItems.map((it) => ({
+    title: it.sku ? `${it.sku} — ${it.name}` : it.name,
+    value: it.id,
+    description: it.description || it.name,
+    accountId: it.incomeAccountId || defaultIncomeAccountId.value,
+    unitPrice: it.salesPrice || 0,
+    taxCodeId: it.defaultTaxCodeId,
+    taxRate: it.defaultTaxCodeId ? taxStore.getTaxCode(it.defaultTaxCodeId)?.rate || 0 : 0,
   }))
 )
 
@@ -202,6 +218,7 @@ onMounted(() => {
     customersStore.subscribe()
     invoicesStore.subscribe()
     accountsStore.subscribe()
+    itemsStore.subscribe()
     taxStore.subscribe()
   }
   if (editing.value) {

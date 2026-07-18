@@ -248,6 +248,27 @@ service cloud.firestore {
         allow write: if (isClerkOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
       }
 
+      // Items (Products & Services) catalog. Clerk+ manage the catalog, but the
+      // stock fields (qtyOnHand/avgCost/stockValue) are owned by the inventory
+      // recompute engine (Admin SDK, which bypasses rules) — a client may not set
+      // them on create (must be 0) or change them on update.
+      match /items/{itemId} {
+        allow read: if isMember(orgId) || isSuperAdmin();
+        allow create: if isSuperAdmin() || (
+          isClerkOrAbove(orgId) && isOrgApproved(orgId) &&
+          request.resource.data.get('qtyOnHand', 0) == 0 &&
+          request.resource.data.get('avgCost', 0) == 0 &&
+          request.resource.data.get('stockValue', 0) == 0
+        );
+        allow update: if isSuperAdmin() || (
+          isClerkOrAbove(orgId) && isOrgApproved(orgId) &&
+          request.resource.data.get('qtyOnHand', 0) == resource.data.get('qtyOnHand', 0) &&
+          request.resource.data.get('avgCost', 0) == resource.data.get('avgCost', 0) &&
+          request.resource.data.get('stockValue', 0) == resource.data.get('stockValue', 0)
+        );
+        allow delete: if (isClerkOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
+      }
+
       match /salesInvoices/{document=**} {
         allow read: if isMember(orgId) || isSuperAdmin();
         allow write: if (isClerkOrAbove(orgId) && isOrgApproved(orgId)) || isSuperAdmin();
