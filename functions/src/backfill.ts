@@ -20,6 +20,32 @@ interface CollectionSpec {
   build: Builder;
 }
 
+/**
+ * Idempotently tag the Inventory (1200) and COGS (5000) accounts as system accounts
+ * on orgs whose chart predates perpetual inventory. Without these tags the posting
+ * engine can't resolve where to book stock/COGS. Safe to call repeatedly — it only
+ * writes when the tag is missing and no other account already claims it.
+ */
+export async function ensureInventoryAccountTags(orgId: string): Promise<void> {
+  const db = admin.firestore();
+  const col = db.collection(`organizations/${orgId}/accounts`);
+  const tags: Array<{ code: string; systemType: string }> = [
+    { code: "1200", systemType: "inventory" },
+    { code: "5000", systemType: "cogs" },
+  ];
+  for (const { code, systemType } of tags) {
+    const alreadyTagged = await col.where("systemType", "==", systemType).limit(1).get();
+    if (!alreadyTagged.empty) continue;
+    const byCode = await col.where("code", "==", code).limit(1).get();
+    if (byCode.empty) continue;
+    await byCode.docs[0].ref.update({
+      systemType,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    logger.info("[backfill] tagged system account", { orgId, code, systemType });
+  }
+}
+
 const COLLECTIONS: CollectionSpec[] = [
   { name: "salesInvoices", sourceType: "salesInvoice", build: buildInvoiceEntry },
   { name: "receipts", sourceType: "receipt", build: buildReceiptEntry },
@@ -54,6 +80,9 @@ export const backfillLedger = onCall(
     if (accountsSnap.empty) {
       throw new HttpsError("failed-precondition", "Seed the chart of accounts before backfilling the ledger.");
     }
+
+    // Tag Inventory/COGS system accounts on legacy charts so inventory posting resolves.
+    await ensureInventoryAccountTags(orgId);
 
     logger.info("[backfill] starting", { orgId, by: uid });
 

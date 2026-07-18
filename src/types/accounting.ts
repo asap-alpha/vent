@@ -14,6 +14,8 @@ export type SystemAccountType =
   | 'purchases'      // default expense account for bill lines
   | 'bank'           // default cash/bank account
   | 'exchange_gain_loss'
+  | 'inventory'      // stock asset account (perpetual inventory)
+  | 'cogs'           // cost of goods sold (posted on inventory sales)
 
 export interface Account {
   id: string

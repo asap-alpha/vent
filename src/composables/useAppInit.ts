@@ -5,6 +5,7 @@ import { useOrganizationStore } from '@/stores/organization'
 import { useAccountsStore } from '@/stores/accounts'
 import { useTransactionsStore } from '@/stores/transactions'
 import { useCustomersStore } from '@/stores/customers'
+import { useItemsStore } from '@/stores/items'
 import { useInvoicesStore } from '@/stores/invoices'
 import { useSuppliersStore } from '@/stores/suppliers'
 import { useBillsStore } from '@/stores/bills'
@@ -100,6 +101,7 @@ export function subscribeAll() {
   useAccountsStore().subscribe()
   useTransactionsStore().subscribe()
   useCustomersStore().subscribe()
+  useItemsStore().subscribe()
   useInvoicesStore().subscribe()
   useSuppliersStore().subscribe()
   useBillsStore().subscribe()

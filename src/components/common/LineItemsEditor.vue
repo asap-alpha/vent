@@ -12,6 +12,7 @@
       <v-table density="comfortable">
         <thead>
           <tr>
+            <th v-if="itemOptions" class="text-body-2 font-weight-medium" style="width: 190px">Item</th>
             <th class="text-body-2 font-weight-medium">Description</th>
             <th v-if="accountOptions" class="text-body-2 font-weight-medium" style="width: 200px">Account</th>
             <th class="text-body-2 font-weight-medium text-end" style="width: 80px">Qty</th>
@@ -29,6 +30,20 @@
         </thead>
         <tbody>
           <tr v-for="(line, idx) in modelValue" :key="idx">
+            <td v-if="itemOptions" class="py-2">
+              <v-select
+                :model-value="line.itemId"
+                :items="itemOptions"
+                item-title="title"
+                item-value="value"
+                density="compact"
+                variant="outlined"
+                hide-details
+                clearable
+                placeholder="Select item"
+                @update:model-value="(v: string | null) => onItemChange(line, v)"
+              />
+            </td>
             <td class="py-2">
               <v-text-field
                 v-model="line.description"
@@ -154,6 +169,7 @@ interface Line {
   amount: number
   accountId?: string
   taxCodeId?: string
+  itemId?: string
 }
 
 interface AccountOption {
@@ -167,6 +183,17 @@ interface TaxCodeOption {
   rate: number
 }
 
+/** A catalog item resolved for the current context (sales vs purchase). */
+interface ItemOption {
+  title: string
+  value: string          // itemId
+  description?: string
+  accountId?: string     // income (sales) or inventory/expense (purchase) account
+  unitPrice?: number     // sales price or purchase cost
+  taxCodeId?: string
+  taxRate?: number
+}
+
 const props = defineProps<{
   modelValue: Line[]
   currency: string
@@ -178,7 +205,25 @@ const props = defineProps<{
   taxCodes?: TaxCodeOption[]
   /** Tax code preselected for newly added lines. */
   defaultTaxCodeId?: string
+  /** When provided, renders a per-line item picker that pre-fills the line. */
+  itemOptions?: ItemOption[]
 }>()
+
+// Picking an item pre-fills the line (description, account, price, tax) and records
+// the itemId that drives inventory/COGS on the server. Clearing it just unlinks the
+// item; the typed-in values stay so the line remains a valid free-form line.
+function onItemChange(line: Line, itemId: string | null) {
+  line.itemId = itemId || undefined
+  const opt = itemId ? props.itemOptions?.find((o) => o.value === itemId) : undefined
+  if (opt) {
+    if (opt.description) line.description = opt.description
+    if (opt.accountId) line.accountId = opt.accountId
+    if (opt.unitPrice !== undefined) line.unitPrice = opt.unitPrice
+    line.taxCodeId = opt.taxCodeId
+    line.taxRate = opt.taxRate || 0
+  }
+  emitUpdate()
+}
 
 // Selecting a tax code sets the line's effective rate so the existing amount/total
 // math (which is linear in the base) stays correct; the component breakdown for

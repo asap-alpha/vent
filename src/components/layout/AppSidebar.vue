@@ -47,6 +47,7 @@
           <v-list-item v-bind="props" prepend-icon="mdi-receipt-text-outline" title="Sales" active-class="sidebar-active" />
         </template>
         <v-list-item title="Customers" :to="{ name: 'customers' }" active-class="sidebar-active" />
+        <v-list-item title="Products & Services" :to="{ name: 'items' }" active-class="sidebar-active" />
         <v-list-item title="Invoices" :to="{ name: 'invoices' }" active-class="sidebar-active" />
         <v-list-item title="Quotes" :to="{ name: 'quotes' }" active-class="sidebar-active" />
         <v-list-item title="Credit Notes" :to="{ name: 'credit-notes' }" active-class="sidebar-active" />
@@ -80,6 +81,7 @@
         <v-list-item title="Profit & Loss" :to="{ name: 'profit-loss' }" active-class="sidebar-active" />
         <v-list-item title="Balance Sheet" :to="{ name: 'balance-sheet' }" active-class="sidebar-active" />
         <v-list-item title="Cash Flow" :to="{ name: 'cash-flow' }" active-class="sidebar-active" />
+        <v-list-item title="Inventory" :to="{ name: 'inventory' }" active-class="sidebar-active" />
         <v-list-item title="Trial Balance" :to="{ name: 'trial-balance' }" active-class="sidebar-active">
           <template v-if="!hasAdvancedReports" #append>
             <v-icon size="14" color="warning">mdi-lock-outline</v-icon>
