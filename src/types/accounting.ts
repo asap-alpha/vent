@@ -1,6 +1,32 @@
 export type AccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense'
 
 /**
+ * Second-level classification within a type, driving how the account is grouped and
+ * subtotalled on the Balance Sheet and Profit & Loss.
+ *
+ * - Assets split into current (cash, bank, AR, inventory, prepayments) and fixed
+ *   (land, buildings, equipment, vehicles, and accumulated depreciation).
+ * - Liabilities split by tenor into current (AP, accruals, tax payable, short-term
+ *   loans) and long-term (long-term loans, mortgages). The same *kind* of account
+ *   can fall either side, so this is a user-set property — never inferred at report time.
+ * - Expenses split into cost of sales (presented above the Gross Profit line) and
+ *   operating expenses (below it).
+ *
+ * Equity and revenue accounts have no subtype.
+ *
+ * Optional on the record: accounts created before this field existed carry no value.
+ * Reports must resolve them through `resolveSubtype()` (see utils/accountClassification)
+ * rather than reading `subtype` directly, so legacy accounts never drop out of a total.
+ */
+export type AccountSubtype =
+  | 'current_asset'
+  | 'fixed_asset'
+  | 'current_liability'
+  | 'long_term_liability'
+  | 'cost_of_sales'
+  | 'operating_expense'
+
+/**
  * Tags a control/system account so the posting engine can resolve it by role
  * (e.g. "the AR account") regardless of its code/name. Undefined for ordinary accounts.
  */
@@ -22,6 +48,7 @@ export interface Account {
   code: string
   name: string
   type: AccountType
+  subtype?: AccountSubtype | null
   parentId: string | null
   currency: string
   isActive: boolean
