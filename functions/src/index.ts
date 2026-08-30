@@ -398,6 +398,7 @@ async function seedChartOfAccountsFor(orgId: string): Promise<number> {
       code: acc.code,
       name: acc.name,
       type: acc.type,
+      subtype: acc.subtype || null,
       parentId: null,
       currency,
       isActive: true,

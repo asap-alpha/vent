@@ -14,6 +14,17 @@
           Seed Defaults
         </v-btn>
         <v-btn
+          v-if="unclassifiedCount > 0"
+          variant="outlined"
+          prepend-icon="mdi-shape-outline"
+          size="small"
+          class="mr-2"
+          :loading="classifying"
+          @click="classifyAccounts"
+        >
+          Classify {{ unclassifiedCount }} Account{{ unclassifiedCount === 1 ? '' : 's' }}
+        </v-btn>
+        <v-btn
           v-if="accounts.length > 0 && canBackfill"
           variant="outlined"
           prepend-icon="mdi-book-sync-outline"
@@ -41,6 +52,16 @@
       </v-tabs>
 
       <div class="d-flex align-center flex-wrap ga-2 pa-4 pb-0">
+        <v-select
+          v-if="subtypeFilterOptions.length > 0"
+          v-model="subtypeFilter"
+          :items="subtypeFilterOptions"
+          label="Group"
+          hide-details
+          clearable
+          density="compact"
+          style="max-width: 220px"
+        />
         <v-spacer />
         <v-text-field
           v-model="search"
@@ -63,6 +84,16 @@
           <v-chip :color="typeColor(item.type)" size="x-small" variant="tonal">
             {{ item.type }}
           </v-chip>
+        </template>
+        <template #item.subtype="{ item }">
+          <span v-if="resolveSubtype(item)" class="text-body-2">
+            {{ SUBTYPE_LABELS[resolveSubtype(item)!] }}
+            <v-tooltip v-if="!item.subtype" activator="parent" location="top">
+              Inferred from the account code and name. Click "Classify" to save it.
+            </v-tooltip>
+            <v-icon v-if="!item.subtype" icon="mdi-help-circle-outline" size="x-small" class="ms-1 text-grey" />
+          </span>
+          <span v-else class="text-grey">—</span>
         </template>
         <template #item.balance="{ item }">
           {{ formatCurrency(getBalance(item.id), item.currency) }}
@@ -111,6 +142,16 @@
                   label="Type"
                   :items="accountTypes"
                   :rules="[required]"
+                />
+              </v-col>
+              <v-col v-if="formSubtypeOptions.length > 0" cols="12" md="6">
+                <v-select
+                  v-model="form.subtype"
+                  label="Group"
+                  :items="formSubtypeOptions"
+                  :rules="[required]"
+                  :hint="subtypeHint"
+                  persistent-hint
                 />
               </v-col>
               <v-col cols="12" md="6">
@@ -168,7 +209,14 @@ import { logger } from '@/utils/logger'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import type { Account, AccountType } from '@/types/accounting'
+import {
+  defaultSubtype,
+  resolveSubtype,
+  subtypeOptions,
+  SUBTYPE_LABELS,
+  SUBTYPES_BY_TYPE,
+} from '@/utils/accountClassification'
+import type { Account, AccountSubtype, AccountType } from '@/types/accounting'
 
 const accountsStore = useAccountsStore()
 const transactionsStore = useTransactionsStore()
@@ -178,12 +226,23 @@ const log = logger('accounts-page')
 
 const accounts = computed(() => accountsStore.accounts)
 const activeType = ref<'all' | AccountType>('all')
+const subtypeFilter = ref<AccountSubtype | null>(null)
 const search = ref('')
+
+// Only offered for the tabs whose type actually has subtypes (assets, liabilities,
+// expenses); reset whenever the tab changes so a stale filter can't blank the table.
+const subtypeFilterOptions = computed(() =>
+  activeType.value === 'all' ? [] : subtypeOptions(activeType.value)
+)
+watch(activeType, () => {
+  subtypeFilter.value = null
+})
 
 const headers = [
   { title: 'Code', key: 'code', width: 100 },
   { title: 'Name', key: 'name' },
   { title: 'Type', key: 'type', width: 130 },
+  { title: 'Group', key: 'subtype', width: 170 },
   { title: 'Currency', key: 'currency', width: 100 },
   { title: 'Balance', key: 'balance', align: 'end' as const, width: 160 },
   { title: 'Status', key: 'isActive', width: 100, align: 'center' as const },
@@ -198,10 +257,34 @@ const accountTypes = [
   { title: 'Expense', value: 'expense' },
 ]
 
-const filteredAccounts = computed(() =>
-  activeType.value === 'all'
-    ? accounts.value
-    : accounts.value.filter((a) => a.type === activeType.value)
+const filteredAccounts = computed(() => {
+  let list = accounts.value
+  if (activeType.value !== 'all') list = list.filter((a) => a.type === activeType.value)
+  if (subtypeFilter.value) list = list.filter((a) => resolveSubtype(a) === subtypeFilter.value)
+  return list
+})
+
+const formSubtypeOptions = computed(() => subtypeOptions(form.value.type))
+
+const subtypeHint = computed(() =>
+  form.value.type === 'liability'
+    ? 'Current if repayable within twelve months, long-term otherwise.'
+    : form.value.type === 'expense'
+      ? 'Cost of sales appears above the Gross Profit line; expenses below it.'
+      : 'Current assets are cash and what converts to cash within a year; fixed assets are held long-term.'
+)
+
+// A type change invalidates the previously chosen group — snap to that type's default
+// (or null for equity/revenue, which have none) so a liability can never be saved
+// carrying, say, 'fixed_asset'.
+watch(
+  () => form.value.type,
+  (type) => {
+    const valid = SUBTYPES_BY_TYPE[type]
+    if (!form.value.subtype || !valid.includes(form.value.subtype)) {
+      form.value.subtype = defaultSubtype(type)
+    }
+  }
 )
 
 function typeColor(type: AccountType): string {
@@ -227,6 +310,7 @@ const form = ref({
   code: '',
   name: '',
   type: 'asset' as AccountType,
+  subtype: defaultSubtype('asset') as AccountSubtype | null,
   parentId: null as string | null,
   currency: 'GHS',
   isActive: true,
@@ -238,6 +322,7 @@ function resetForm() {
     code: '',
     name: '',
     type: 'asset',
+    subtype: defaultSubtype('asset'),
     parentId: null,
     currency: orgStore.currentOrg?.currency || 'GHS',
     isActive: true,
@@ -258,6 +343,8 @@ function openEdit(account: Account) {
     code: account.code,
     name: account.name,
     type: account.type,
+    // Show the inferred group for a legacy account so saving the form also classifies it.
+    subtype: resolveSubtype(account),
     parentId: account.parentId,
     currency: account.currency,
     isActive: account.isActive,
@@ -292,6 +379,21 @@ async function confirmDelete(account: Account) {
   const ok = await confirmRef.value?.open()
   if (ok) {
     await accountsStore.deleteAccount(account.id)
+  }
+}
+
+const unclassifiedCount = computed(() => accountsStore.unclassifiedAccounts.length)
+const classifying = ref(false)
+async function classifyAccounts() {
+  classifying.value = true
+  try {
+    const updated = await accountsStore.backfillSubtypes()
+    log.info('classified accounts', { updated })
+  } catch (e: any) {
+    log.error('classify failed', { message: e.message })
+    alert(`Could not classify accounts: ${e.message}`)
+  } finally {
+    classifying.value = false
   }
 }
 

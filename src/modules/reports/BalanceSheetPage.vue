@@ -34,13 +34,24 @@
             <div class="text-subtitle-2 font-weight-bold mb-3">Assets</div>
             <v-table density="comfortable">
               <tbody>
-                <tr v-for="acc in assetAccounts" :key="acc.id">
-                  <td>{{ acc.code }} — {{ acc.name }}</td>
-                  <td class="text-end">{{ formatCurrency(getBalance(acc.id), currency) }}</td>
-                </tr>
-                <tr v-if="assetAccounts.length === 0">
-                  <td colspan="2" class="text-center text-grey">No asset accounts</td>
-                </tr>
+                <template v-for="group in assetGroups" :key="group.subtype">
+                  <tr class="bg-grey-lighten-4">
+                    <td class="font-weight-medium">{{ group.label }}</td>
+                    <td />
+                  </tr>
+                  <tr v-for="acc in group.accounts" :key="acc.id">
+                    <td class="ps-6">{{ acc.code }} — {{ acc.name }}</td>
+                    <td class="text-end">{{ formatCurrency(getBalance(acc.id), currency) }}</td>
+                  </tr>
+                  <tr v-if="group.accounts.length === 0">
+                    <td class="ps-6 text-grey">None</td>
+                    <td />
+                  </tr>
+                  <tr class="font-weight-medium">
+                    <td class="ps-6">Total {{ group.label }}</td>
+                    <td class="text-end">{{ formatCurrency(group.total, currency) }}</td>
+                  </tr>
+                </template>
                 <tr class="font-weight-bold">
                   <td>Total Assets</td>
                   <td class="text-end">{{ formatCurrency(totalAssets, currency) }}</td>
@@ -58,13 +69,24 @@
             <div class="text-subtitle-2 font-weight-bold mb-3">Liabilities</div>
             <v-table density="comfortable">
               <tbody>
-                <tr v-for="acc in liabilityAccounts" :key="acc.id">
-                  <td>{{ acc.code }} — {{ acc.name }}</td>
-                  <td class="text-end">{{ formatCurrency(getBalance(acc.id), currency) }}</td>
-                </tr>
-                <tr v-if="liabilityAccounts.length === 0">
-                  <td colspan="2" class="text-center text-grey">No liability accounts</td>
-                </tr>
+                <template v-for="group in liabilityGroups" :key="group.subtype">
+                  <tr class="bg-grey-lighten-4">
+                    <td class="font-weight-medium">{{ group.label }}</td>
+                    <td />
+                  </tr>
+                  <tr v-for="acc in group.accounts" :key="acc.id">
+                    <td class="ps-6">{{ acc.code }} — {{ acc.name }}</td>
+                    <td class="text-end">{{ formatCurrency(getBalance(acc.id), currency) }}</td>
+                  </tr>
+                  <tr v-if="group.accounts.length === 0">
+                    <td class="ps-6 text-grey">None</td>
+                    <td />
+                  </tr>
+                  <tr class="font-weight-medium">
+                    <td class="ps-6">Total {{ group.label }}</td>
+                    <td class="text-end">{{ formatCurrency(group.total, currency) }}</td>
+                  </tr>
+                </template>
                 <tr class="font-weight-bold">
                   <td>Total Liabilities</td>
                   <td class="text-end">{{ formatCurrency(totalLiabilities, currency) }}</td>
@@ -137,6 +159,8 @@ import { formatCurrency } from '@/utils/currency'
 import { formatDate, formatDateISO, endOfLocalDay } from '@/utils/date'
 import { endOfMonth, endOfQuarter, endOfYear, subMonths, subQuarters } from 'date-fns'
 import { exportStatementPDF, type StatementRow } from '@/utils/pdf'
+import { accountsInSubtype, SUBTYPE_SECTION_LABELS } from '@/utils/accountClassification'
+import type { Account, AccountSubtype } from '@/types/accounting'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const accountsStore = useAccountsStore()
@@ -166,6 +190,36 @@ const assetAccounts = computed(() =>
 )
 const liabilityAccounts = computed(() =>
   accountsStore.accounts.filter((a) => a.type === 'liability').sort((a, b) => a.code.localeCompare(b.code))
+)
+
+interface StatementGroup {
+  subtype: AccountSubtype
+  label: string
+  accounts: Account[]
+  total: number
+}
+
+// Assets and liabilities are presented as subtyped sections with their own subtotals
+// (Current/Fixed, Current/Long-Term). Every account of the parent type lands in exactly
+// one section — resolveSubtype() never returns null for an asset or liability — so the
+// section subtotals always add back up to Total Assets / Total Liabilities.
+function buildGroups(accounts: Account[], subtypes: AccountSubtype[]): StatementGroup[] {
+  return subtypes.map((subtype) => {
+    const inGroup = accountsInSubtype(accounts, subtype)
+    return {
+      subtype,
+      label: SUBTYPE_SECTION_LABELS[subtype],
+      accounts: inGroup,
+      total: inGroup.reduce((s, a) => s + getBalance(a.id), 0),
+    }
+  })
+}
+
+const assetGroups = computed(() =>
+  buildGroups(assetAccounts.value, ['current_asset', 'fixed_asset'])
+)
+const liabilityGroups = computed(() =>
+  buildGroups(liabilityAccounts.value, ['current_liability', 'long_term_liability'])
 )
 // Exclude the tagged Retained Earnings account — it's presented as an auto-computed
 // figure below (prior-year + current-year earnings), the way Manager/Xero do it.
@@ -243,15 +297,23 @@ function downloadPdf() {
   const rows: StatementRow[] = []
 
   rows.push({ kind: 'heading', label: 'Assets' })
-  for (const acc of assetAccounts.value) {
-    rows.push({ kind: 'line', label: `${acc.code} — ${acc.name}`, value: getBalance(acc.id), indent: true })
+  for (const group of assetGroups.value) {
+    rows.push({ kind: 'heading', label: group.label })
+    for (const acc of group.accounts) {
+      rows.push({ kind: 'line', label: `${acc.code} — ${acc.name}`, value: getBalance(acc.id), indent: true })
+    }
+    rows.push({ kind: 'subtotal', label: `Total ${group.label}`, value: group.total })
   }
   rows.push({ kind: 'total', label: 'Total Assets', value: totalAssets.value })
   rows.push({ kind: 'spacer' })
 
   rows.push({ kind: 'heading', label: 'Liabilities' })
-  for (const acc of liabilityAccounts.value) {
-    rows.push({ kind: 'line', label: `${acc.code} — ${acc.name}`, value: getBalance(acc.id), indent: true })
+  for (const group of liabilityGroups.value) {
+    rows.push({ kind: 'heading', label: group.label })
+    for (const acc of group.accounts) {
+      rows.push({ kind: 'line', label: `${acc.code} — ${acc.name}`, value: getBalance(acc.id), indent: true })
+    }
+    rows.push({ kind: 'subtotal', label: `Total ${group.label}`, value: group.total })
   }
   rows.push({ kind: 'subtotal', label: 'Total Liabilities', value: totalLiabilities.value })
   rows.push({ kind: 'spacer' })

@@ -16,7 +16,8 @@ import {
 import { db } from '@/plugins/firebase'
 import { useOrganizationStore } from './organization'
 import { logger } from '@/utils/logger'
-import type { Account, AccountType, SystemAccountType } from '@/types/accounting'
+import type { Account, AccountSubtype, AccountType, SystemAccountType } from '@/types/accounting'
+import { inferSubtype, resolveSubtype } from '@/utils/accountClassification'
 
 const log = logger('accounts')
 
@@ -39,6 +40,35 @@ export const useAccountsStore = defineStore('accounts', () => {
     for (const acc of accounts.value) groups[acc.type].push(acc)
     return groups
   })
+
+  /**
+   * Accounts bucketed by their effective subtype (current/fixed asset, current/long-term
+   * liability, cost of sales/operating expense). Legacy accounts with no stored subtype
+   * are resolved by inference, so nothing falls out of a statement subtotal.
+   */
+  const accountsBySubtype = computed(() => {
+    const groups: Record<AccountSubtype, Account[]> = {
+      current_asset: [],
+      fixed_asset: [],
+      current_liability: [],
+      long_term_liability: [],
+      cost_of_sales: [],
+      operating_expense: [],
+    }
+    for (const acc of accounts.value) {
+      const sub = resolveSubtype(acc)
+      if (sub) groups[sub].push(acc)
+    }
+    for (const key of Object.keys(groups) as AccountSubtype[]) {
+      groups[key].sort((a, b) => a.code.localeCompare(b.code))
+    }
+    return groups
+  })
+
+  /** Accounts that predate the subtype field and would be classified by inference. */
+  const unclassifiedAccounts = computed(() =>
+    accounts.value.filter((a) => !a.subtype && inferSubtype(a) !== null)
+  )
 
   function getAccount(id: string): Account | undefined {
     return accounts.value.find((a) => a.id === id)
@@ -161,36 +191,73 @@ export const useAccountsStore = defineStore('accounts', () => {
     const cur = useOrganizationStore().currentOrg?.currency || 'GHS'
     const base = { parentId: null, currency: cur, isActive: true, description: '' } as const
     const defaults: Array<Omit<Account, 'id' | 'createdAt' | 'updatedAt' | 'balance'>> = [
-      { ...base, code: '1000', name: 'Cash on Hand', type: 'asset' },
-      { ...base, code: '1010', name: 'Bank Account', type: 'asset', systemType: 'bank' },
-      { ...base, code: '1100', name: 'Accounts Receivable', type: 'asset', systemType: 'accounts_receivable' },
-      { ...base, code: '1200', name: 'Inventory', type: 'asset', systemType: 'inventory' },
-      { ...base, code: '1400', name: 'Fixed Assets', type: 'asset' },
-      { ...base, code: '1450', name: 'Accumulated Depreciation', type: 'asset' },
-      { ...base, code: '2000', name: 'Accounts Payable', type: 'liability', systemType: 'accounts_payable' },
-      { ...base, code: '2100', name: 'VAT Payable', type: 'liability', systemType: 'tax_payable' },
-      { ...base, code: '2110', name: 'NHIL Payable', type: 'liability' },
-      { ...base, code: '2120', name: 'GETFund Levy Payable', type: 'liability' },
-      { ...base, code: '2130', name: 'COVID-19 Levy Payable', type: 'liability' },
-      { ...base, code: '2200', name: 'Accrued Liabilities', type: 'liability' },
+      // ---- Current assets ----
+      { ...base, code: '1000', name: 'Cash on Hand', type: 'asset', subtype: 'current_asset' },
+      { ...base, code: '1010', name: 'Bank Account', type: 'asset', subtype: 'current_asset', systemType: 'bank' },
+      { ...base, code: '1100', name: 'Accounts Receivable', type: 'asset', subtype: 'current_asset', systemType: 'accounts_receivable' },
+      { ...base, code: '1200', name: 'Inventory', type: 'asset', subtype: 'current_asset', systemType: 'inventory' },
+      { ...base, code: '1300', name: 'Prepayments', type: 'asset', subtype: 'current_asset' },
+      // ---- Fixed assets ----
+      { ...base, code: '1400', name: 'Land', type: 'asset', subtype: 'fixed_asset' },
+      { ...base, code: '1410', name: 'Buildings', type: 'asset', subtype: 'fixed_asset' },
+      { ...base, code: '1420', name: 'Equipment', type: 'asset', subtype: 'fixed_asset' },
+      { ...base, code: '1430', name: 'Motor Vehicles', type: 'asset', subtype: 'fixed_asset' },
+      { ...base, code: '1440', name: 'Furniture & Fittings', type: 'asset', subtype: 'fixed_asset' },
+      { ...base, code: '1450', name: 'Accumulated Depreciation', type: 'asset', subtype: 'fixed_asset' },
+      // ---- Current liabilities ----
+      { ...base, code: '2000', name: 'Accounts Payable', type: 'liability', subtype: 'current_liability', systemType: 'accounts_payable' },
+      { ...base, code: '2100', name: 'VAT Payable', type: 'liability', subtype: 'current_liability', systemType: 'tax_payable' },
+      { ...base, code: '2110', name: 'NHIL Payable', type: 'liability', subtype: 'current_liability' },
+      { ...base, code: '2120', name: 'GETFund Levy Payable', type: 'liability', subtype: 'current_liability' },
+      { ...base, code: '2130', name: 'COVID-19 Levy Payable', type: 'liability', subtype: 'current_liability' },
+      { ...base, code: '2200', name: 'Accrued Liabilities', type: 'liability', subtype: 'current_liability' },
+      { ...base, code: '2300', name: 'Short-Term Loans', type: 'liability', subtype: 'current_liability' },
+      // ---- Long-term liabilities ----
+      { ...base, code: '2700', name: 'Long-Term Loans', type: 'liability', subtype: 'long_term_liability' },
+      // ---- Equity ----
       { ...base, code: '3000', name: "Owner's Equity", type: 'equity' },
       { ...base, code: '3100', name: 'Retained Earnings', type: 'equity', systemType: 'retained_earnings' },
       { ...base, code: '3200', name: 'Opening Balance Equity', type: 'equity', systemType: 'opening_balance_equity' },
+      // ---- Income ----
       { ...base, code: '4000', name: 'Sales Revenue', type: 'revenue', systemType: 'sales' },
       { ...base, code: '4100', name: 'Other Income', type: 'revenue' },
       { ...base, code: '4900', name: 'Exchange Gain/Loss', type: 'revenue', systemType: 'exchange_gain_loss' },
-      { ...base, code: '5000', name: 'Cost of Goods Sold', type: 'expense', systemType: 'cogs' },
-      { ...base, code: '6000', name: 'General Expenses', type: 'expense', systemType: 'purchases' },
-      { ...base, code: '6100', name: 'Rent', type: 'expense' },
-      { ...base, code: '6200', name: 'Utilities', type: 'expense' },
-      { ...base, code: '6300', name: 'Salaries & Wages', type: 'expense' },
-      { ...base, code: '6400', name: 'Bank Charges', type: 'expense' },
-      { ...base, code: '6500', name: 'Office Supplies', type: 'expense' },
+      // ---- Cost of sales ----
+      { ...base, code: '5000', name: 'Cost of Goods Sold', type: 'expense', subtype: 'cost_of_sales', systemType: 'cogs' },
+      { ...base, code: '5100', name: 'Freight & Haulage', type: 'expense', subtype: 'cost_of_sales' },
+      { ...base, code: '5200', name: 'Direct Labour', type: 'expense', subtype: 'cost_of_sales' },
+      // ---- Operating expenses ----
+      { ...base, code: '6000', name: 'General Expenses', type: 'expense', subtype: 'operating_expense', systemType: 'purchases' },
+      { ...base, code: '6100', name: 'Rent', type: 'expense', subtype: 'operating_expense' },
+      { ...base, code: '6200', name: 'Utilities', type: 'expense', subtype: 'operating_expense' },
+      { ...base, code: '6300', name: 'Salaries & Wages', type: 'expense', subtype: 'operating_expense' },
+      { ...base, code: '6400', name: 'Bank Charges', type: 'expense', subtype: 'operating_expense' },
+      { ...base, code: '6500', name: 'Office Supplies', type: 'expense', subtype: 'operating_expense' },
     ]
 
     for (const acc of defaults) {
       await createAccount(acc)
     }
+  }
+
+  /**
+   * Persist an inferred subtype onto every account that predates the field. Reports
+   * already infer at read time, so this is a convenience that makes the classification
+   * visible and editable in the Chart of Accounts rather than a correctness fix.
+   * Accounts that already carry a subtype are left untouched.
+   */
+  async function backfillSubtypes(): Promise<number> {
+    const pending = unclassifiedAccounts.value
+    log.info('Backfilling account subtypes', { count: pending.length })
+    let updated = 0
+    for (const acc of pending) {
+      const sub = inferSubtype(acc)
+      if (!sub) continue
+      await updateAccount(acc.id, { subtype: sub })
+      updated++
+    }
+    log.info('Subtype backfill complete', { updated })
+    return updated
   }
 
   function $reset() {
@@ -206,6 +273,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     error,
     activeAccounts,
     accountsByType,
+    accountsBySubtype,
+    unclassifiedAccounts,
     hasChartOfAccounts,
     getAccount,
     getSystemAccount,
@@ -215,6 +284,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     updateAccount,
     deleteAccount,
     seedDefaultAccounts,
+    backfillSubtypes,
     $reset,
   }
 })

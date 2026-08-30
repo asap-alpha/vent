@@ -28,7 +28,7 @@
 
     <v-card class="mb-4">
       <v-card-text class="pa-5">
-        <div class="text-subtitle-2 font-weight-bold mb-3">Revenue</div>
+        <div class="text-subtitle-2 font-weight-bold mb-3">Income</div>
         <v-table density="comfortable">
           <tbody>
             <tr v-for="acc in revenueAccounts" :key="acc.id">
@@ -36,10 +36,10 @@
               <td class="text-end">{{ formatCurrency(getBalance(acc.id), currency) }}</td>
             </tr>
             <tr v-if="revenueAccounts.length === 0">
-              <td colspan="2" class="text-center text-grey">No revenue accounts</td>
+              <td colspan="2" class="text-center text-grey">No income accounts</td>
             </tr>
             <tr class="font-weight-bold">
-              <td>Total Revenue</td>
+              <td>Total — Income</td>
               <td class="text-end">{{ formatCurrency(totalRevenue, currency) }}</td>
             </tr>
           </tbody>
@@ -47,7 +47,34 @@
 
         <v-divider class="my-4" />
 
-        <div class="text-subtitle-2 font-weight-bold mb-3">Expenses</div>
+        <div class="text-subtitle-2 font-weight-bold mb-3">Cost of Sales</div>
+        <v-table density="comfortable">
+          <tbody>
+            <tr v-for="acc in costOfSalesAccounts" :key="acc.id">
+              <td>{{ acc.code }} — {{ acc.name }}</td>
+              <td class="text-end">{{ formatCurrency(getBalance(acc.id), currency) }}</td>
+            </tr>
+            <tr v-if="costOfSalesAccounts.length === 0">
+              <td colspan="2" class="text-center text-grey">No cost of sales accounts</td>
+            </tr>
+            <tr class="font-weight-bold">
+              <td>Total — Cost of Sales</td>
+              <td class="text-end">{{ formatCurrency(totalCostOfSales, currency) }}</td>
+            </tr>
+          </tbody>
+        </v-table>
+
+        <v-divider class="my-4" />
+
+        <div class="d-flex align-center px-3 py-2 rounded bg-grey-lighten-4 mb-4">
+          <span class="text-subtitle-2 font-weight-bold">Gross Profit</span>
+          <v-spacer />
+          <span class="text-subtitle-1 font-weight-bold">
+            {{ formatCurrency(grossProfit, currency) }}
+          </span>
+        </div>
+
+        <div class="text-subtitle-2 font-weight-bold mb-3">Less: Expenses</div>
         <v-table density="comfortable">
           <tbody>
             <tr v-for="acc in expenseAccounts" :key="acc.id">
@@ -58,7 +85,7 @@
               <td colspan="2" class="text-center text-grey">No expense accounts</td>
             </tr>
             <tr class="font-weight-bold">
-              <td>Total Expenses</td>
+              <td>Total — Expenses</td>
               <td class="text-end">{{ formatCurrency(totalExpenses, currency) }}</td>
             </tr>
           </tbody>
@@ -87,6 +114,7 @@ import { formatCurrency } from '@/utils/currency'
 import { formatDate, formatDateISO, startOfLocalDay, endOfLocalDay } from '@/utils/date'
 import { startOfYear, startOfMonth, startOfQuarter } from 'date-fns'
 import { exportStatementPDF, type StatementRow } from '@/utils/pdf'
+import { accountsInSubtype } from '@/utils/accountClassification'
 import PageHeader from '@/components/common/PageHeader.vue'
 
 const accountsStore = useAccountsStore()
@@ -116,8 +144,13 @@ const currency = computed(() => orgStore.currentOrg?.currency || 'GHS')
 const revenueAccounts = computed(() =>
   accountsStore.accounts.filter((a) => a.type === 'revenue').sort((a, b) => a.code.localeCompare(b.code))
 )
+// Expense accounts split by subtype: cost of sales is presented above the Gross Profit
+// line, operating expenses below it.
+const costOfSalesAccounts = computed(() =>
+  accountsInSubtype(accountsStore.accounts, 'cost_of_sales')
+)
 const expenseAccounts = computed(() =>
-  accountsStore.accounts.filter((a) => a.type === 'expense').sort((a, b) => a.code.localeCompare(b.code))
+  accountsInSubtype(accountsStore.accounts, 'operating_expense')
 )
 
 function getBalance(accountId: string): number {
@@ -146,10 +179,14 @@ function getBalance(accountId: string): number {
 const totalRevenue = computed(() =>
   revenueAccounts.value.reduce((s, a) => s + getBalance(a.id), 0)
 )
+const totalCostOfSales = computed(() =>
+  costOfSalesAccounts.value.reduce((s, a) => s + getBalance(a.id), 0)
+)
 const totalExpenses = computed(() =>
   expenseAccounts.value.reduce((s, a) => s + getBalance(a.id), 0)
 )
-const netIncome = computed(() => totalRevenue.value - totalExpenses.value)
+const grossProfit = computed(() => totalRevenue.value - totalCostOfSales.value)
+const netIncome = computed(() => grossProfit.value - totalExpenses.value)
 
 function downloadPdf() {
   const org = orgStore.currentOrg
@@ -157,18 +194,28 @@ function downloadPdf() {
 
   const rows: StatementRow[] = []
 
-  rows.push({ kind: 'heading', label: 'Revenue' })
+  rows.push({ kind: 'heading', label: 'Income' })
   for (const acc of revenueAccounts.value) {
     rows.push({ kind: 'line', label: `${acc.code} — ${acc.name}`, value: getBalance(acc.id), indent: true })
   }
-  rows.push({ kind: 'subtotal', label: 'Total Revenue', value: totalRevenue.value })
+  rows.push({ kind: 'subtotal', label: 'Total — Income', value: totalRevenue.value })
   rows.push({ kind: 'spacer' })
 
-  rows.push({ kind: 'heading', label: 'Expenses' })
+  rows.push({ kind: 'heading', label: 'Cost of Sales' })
+  for (const acc of costOfSalesAccounts.value) {
+    rows.push({ kind: 'line', label: `${acc.code} — ${acc.name}`, value: getBalance(acc.id), indent: true })
+  }
+  rows.push({ kind: 'subtotal', label: 'Total — Cost of Sales', value: totalCostOfSales.value })
+  rows.push({ kind: 'spacer' })
+
+  rows.push({ kind: 'subtotal', label: 'Gross Profit', value: grossProfit.value })
+  rows.push({ kind: 'spacer' })
+
+  rows.push({ kind: 'heading', label: 'Less: Expenses' })
   for (const acc of expenseAccounts.value) {
     rows.push({ kind: 'line', label: `${acc.code} — ${acc.name}`, value: getBalance(acc.id), indent: true })
   }
-  rows.push({ kind: 'subtotal', label: 'Total Expenses', value: totalExpenses.value })
+  rows.push({ kind: 'subtotal', label: 'Total — Expenses', value: totalExpenses.value })
   rows.push({ kind: 'spacer' })
 
   rows.push({
