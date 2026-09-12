@@ -75,10 +75,43 @@
               </v-col>
             </v-row>
 
-            <v-btn-toggle v-model="form.kind" mandatory density="compact" rounded="lg" variant="outlined" class="mb-3">
-              <v-btn value="service" size="small">Service</v-btn>
-              <v-btn value="inventory" size="small">Inventory (tracked stock)</v-btn>
-            </v-btn-toggle>
+            <div class="text-caption text-medium-emphasis text-uppercase mb-1 mt-2">Item type</div>
+            <v-row class="mb-2" dense role="radiogroup" aria-label="Item type">
+              <v-col v-for="opt in kindOptions" :key="opt.value" cols="12" sm="6">
+                <v-card
+                  variant="outlined"
+                  class="kind-card pa-3"
+                  :class="{ 'kind-card--selected': form.kind === opt.value }"
+                  role="radio"
+                  :aria-checked="form.kind === opt.value"
+                  tabindex="0"
+                  @click="form.kind = opt.value"
+                  @keydown.enter.prevent="form.kind = opt.value"
+                  @keydown.space.prevent="form.kind = opt.value"
+                >
+                  <div class="d-flex align-start ga-3">
+                    <v-icon
+                      :icon="opt.icon"
+                      size="22"
+                      :color="form.kind === opt.value ? 'primary' : 'medium-emphasis'"
+                    />
+                    <div class="flex-grow-1">
+                      <div class="d-flex align-center">
+                        <span class="text-body-2 font-weight-medium">{{ opt.title }}</span>
+                        <v-spacer />
+                        <v-icon
+                          v-if="form.kind === opt.value"
+                          icon="mdi-check-circle"
+                          size="18"
+                          color="primary"
+                        />
+                      </div>
+                      <div class="text-caption text-medium-emphasis">{{ opt.subtitle }}</div>
+                    </div>
+                  </div>
+                </v-card>
+              </v-col>
+            </v-row>
 
             <v-textarea v-model="form.description" label="Description" rows="2" variant="outlined" density="comfortable" class="mb-2" />
 
@@ -176,6 +209,24 @@ const expenseAccountOptions = computed(() => accountOptions('expense'))
 const taxCodeOptions = computed(() =>
   taxStore.activeTaxCodes.map((t) => ({ title: `${t.name} (${t.rate}%)`, value: t.id }))
 )
+
+// The two item kinds, rendered as selectable cards in the dialog. Inventory is the
+// consequential choice — only `inventory` items appear on the Inventory report and
+// carry stock/COGS — so each card states what it does rather than just naming itself.
+const kindOptions = [
+  {
+    value: 'service' as ItemKind,
+    icon: 'mdi-hammer-wrench',
+    title: 'Service',
+    subtitle: 'No stock tracking. Bills post straight to an expense account.',
+  },
+  {
+    value: 'inventory' as ItemKind,
+    icon: 'mdi-package-variant-closed',
+    title: 'Inventory',
+    subtitle: 'Tracks stock on hand, average cost and cost of goods sold.',
+  },
+]
 
 function blankForm() {
   return {
@@ -276,3 +327,28 @@ function subscribeAll() {
 onMounted(subscribeAll)
 watch(() => orgStore.orgId, (id) => id && subscribeAll())
 </script>
+
+<style scoped>
+.kind-card {
+  cursor: pointer;
+  height: 100%;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.kind-card:hover {
+  --v-border-opacity: 0.6;
+}
+
+.kind-card:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 2px;
+}
+
+.kind-card--selected {
+  --v-border-opacity: 1;
+  border-color: rgb(var(--v-theme-primary));
+  /* Inset ring rather than a thicker border, so selecting a card does not reflow it. */
+  box-shadow: inset 0 0 0 1px rgb(var(--v-theme-primary));
+  background-color: rgba(var(--v-theme-primary), 0.06);
+}
+</style>
