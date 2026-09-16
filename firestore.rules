@@ -81,7 +81,11 @@ service cloud.firestore {
     function ownerOrgEdit(orgId) {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
       return isOwner(orgId) &&
-        changed.hasOnly(['name', 'currency', 'fiscalYearStart', 'subscriptionStatus', 'canceledAt']) &&
+        changed.hasOnly([
+          'name', 'currency', 'fiscalYearStart', 'subscriptionStatus', 'canceledAt',
+          // Business profile / document branding — printed on invoice & bill PDFs
+          'logo', 'address', 'email', 'phone', 'taxId', 'vatNumber', 'bankDetails'
+        ]) &&
         (!changed.hasAny(['subscriptionStatus']) || request.resource.data.subscriptionStatus == 'canceled');
     }
 

@@ -49,6 +49,12 @@
         show-expand
         @click:row="onRowClick"
       >
+        <template #item.number="{ item }">
+          <span class="font-weight-medium">{{ item.number }}</span>
+          <v-chip v-if="isVatInvoice(item)" size="x-small" variant="tonal" color="primary" class="ms-2">
+            VAT
+          </v-chip>
+        </template>
         <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
         <template #item.dueDate="{ item }">
           <span :class="isOverdue(item) ? 'text-error font-weight-bold' : ''">
@@ -212,7 +218,7 @@ const filteredInvoices = computed(() =>
 )
 
 const headers = [
-  { title: 'Number', key: 'number', width: 130 },
+  { title: 'Number', key: 'number', width: 170 },
   { title: 'Date', key: 'date', width: 130 },
   { title: 'Customer', key: 'customerName' },
   { title: 'Due Date', key: 'dueDate', width: 130 },
@@ -272,6 +278,14 @@ async function emailInvoice(inv: SalesInvoice) {
   } finally {
     emailing.value[inv.id] = false
   }
+}
+
+/**
+ * A taxed invoice is a VAT invoice — it prints as "VAT INVOICE" and is flagged
+ * here so the list matches the document (see src/utils/pdf.ts).
+ */
+function isVatInvoice(inv: SalesInvoice): boolean {
+  return inv.taxTotal > 0.005 || inv.lines.some((l) => (l.taxRate || 0) > 0)
 }
 
 function downloadPDF(inv: SalesInvoice) {

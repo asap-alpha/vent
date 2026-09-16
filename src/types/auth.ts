@@ -36,6 +36,16 @@ export interface Invitation {
 
 export type OrgStatus = 'pending' | 'approved' | 'rejected' | 'suspended'
 
+/** Payment instructions printed at the foot of every invoice / bill PDF. */
+export interface BankDetails {
+  bankName: string
+  branch: string
+  bankCode: string
+  accountName: string
+  accountNumber: string
+  swift: string
+}
+
 export interface Organization {
   id: string
   name: string
@@ -45,6 +55,16 @@ export interface Organization {
   rejectionReason?: string
   createdBy: string
   createdAt: Date
+  // ---- Business profile / document branding (see SettingsPage.vue) ----
+  /** Logo as a resized data URL (PNG/JPEG). Stored inline — no Storage bucket yet. */
+  logo?: string
+  /** Business location, printed in the document header beside the invoice details. */
+  address?: string
+  email?: string
+  phone?: string
+  taxId?: string
+  vatNumber?: string
+  bankDetails?: BankDetails
   reviewedBy?: string
   reviewedAt?: Date
   // Subscription fields (see src/stores/subscription.ts)

@@ -3,7 +3,7 @@ import autoTable from 'jspdf-autotable'
 import { formatDate } from './date'
 import type { SalesInvoice } from '@/types/sales'
 import type { PurchaseInvoice } from '@/types/purchases'
-import type { Organization } from '@/types/auth'
+import type { BankDetails, Organization } from '@/types/auth'
 
 /**
  * PDF-safe currency formatter.
@@ -53,10 +53,54 @@ interface DocConfig {
   notes: string
   currency: string
   org: Organization
+  /** Business location — printed in the header, inline with the document details. */
   orgAddress?: string
   orgEmail?: string
   orgPhone?: string
+  orgTaxId?: string
+  orgVatNumber?: string
+  /** Org logo as a data URL (PNG/JPEG); omitted when the org hasn't uploaded one. */
+  logo?: string
+  /** Payment instructions — printed in a block below the document body. */
+  bank?: BankDetails
   filename: string
+}
+
+/** Does this document carry tax? Drives the "VAT INVOICE" vs "INVOICE" heading. */
+function hasVat(taxTotal: number, lines: Array<{ taxRate: number }>): boolean {
+  return taxTotal > 0.005 || lines.some((l) => (l.taxRate || 0) > 0)
+}
+
+/** True when the bank block has at least one field worth printing. */
+function hasBankDetails(bank?: BankDetails): bank is BankDetails {
+  if (!bank) return false
+  return Boolean(
+    bank.bankName || bank.branch || bank.bankCode || bank.accountName || bank.accountNumber || bank.swift
+  )
+}
+
+/** Logo box on the document header, in mm. The image is fitted inside it. */
+const LOGO_MAX_W = 40
+const LOGO_MAX_H = 18
+
+/**
+ * Draw the org logo right-aligned at `rightX`, scaled to fit the logo box while
+ * keeping its aspect ratio. Returns the y-coordinate of its bottom edge, or
+ * `null` when there is no logo (or it can't be decoded — a bad logo must never
+ * cost the user their invoice).
+ */
+function drawLogo(doc: jsPDF, logo: string | undefined, rightX: number, topY: number): number | null {
+  if (!logo) return null
+  try {
+    const props = doc.getImageProperties(logo)
+    const scale = Math.min(LOGO_MAX_W / props.width, LOGO_MAX_H / props.height)
+    const w = props.width * scale
+    const h = props.height * scale
+    doc.addImage(logo, props.fileType, rightX - w, topY, w, h)
+    return topY + h
+  } catch {
+    return null
+  }
 }
 
 function renderDocument(cfg: DocConfig) {
@@ -70,7 +114,7 @@ function renderDocument(cfg: DocConfig) {
   const MUTED: [number, number, number] = [120, 120, 120]
   const BORDER: [number, number, number] = [220, 220, 220]
 
-  // ===== Header: doc label + org name =====
+  // ===== Header: doc label (left) + logo over the business block (right) =====
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(24)
   doc.setTextColor(...PRIMARY)
@@ -81,16 +125,21 @@ function renderDocument(cfg: DocConfig) {
   doc.setTextColor(...MUTED)
   doc.text(`# ${cfg.number}`, margin, margin + 15)
 
-  // Org block (right)
+  // Logo, right-aligned at the top. The business block flows beneath it, so the
+  // location and contact details stay inline with the document details opposite.
+  let orgY = margin + 8
+  const logoBottom = drawLogo(doc, cfg.logo, pageWidth - margin, margin)
+  if (logoBottom !== null) orgY = logoBottom + 6
+
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(14)
   doc.setTextColor(...DARK)
-  doc.text(cfg.org.name, pageWidth - margin, margin + 8, { align: 'right' })
+  doc.text(cfg.org.name, pageWidth - margin, orgY, { align: 'right' })
+  orgY += 6
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   doc.setTextColor(...MUTED)
-  let orgY = margin + 14
   if (cfg.orgAddress) {
     const addrLines = doc.splitTextToSize(cfg.orgAddress, 70)
     doc.text(addrLines, pageWidth - margin, orgY, { align: 'right' })
@@ -102,6 +151,14 @@ function renderDocument(cfg: DocConfig) {
   }
   if (cfg.orgPhone) {
     doc.text(cfg.orgPhone, pageWidth - margin, orgY, { align: 'right' })
+    orgY += 4
+  }
+  if (cfg.orgTaxId) {
+    doc.text(`TIN: ${cfg.orgTaxId}`, pageWidth - margin, orgY, { align: 'right' })
+    orgY += 4
+  }
+  if (cfg.orgVatNumber) {
+    doc.text(`VAT No: ${cfg.orgVatNumber}`, pageWidth - margin, orgY, { align: 'right' })
     orgY += 4
   }
 
@@ -247,8 +304,10 @@ function renderDocument(cfg: DocConfig) {
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(10)
   doc.setTextColor(cfg.amountDue > 0 ? 255 : 66, cfg.amountDue > 0 ? 255 : 66, cfg.amountDue > 0 ? 255 : 66)
-  doc.text('Amount Due', totalsLabelX, y + 2)
-  doc.text(formatMoney(cfg.amountDue, cfg.currency), totalsValueX, y + 2, { align: 'right' })
+  // Label sits at the left edge of the box — anchoring it at totalsLabelX ran it
+  // into wide figures like "GHS 19,892.08"
+  doc.text('Amount Due', totalsX + 4, y + 2)
+  doc.text(formatMoney(cfg.amountDue, cfg.currency), totalsValueX - 4, y + 2, { align: 'right' })
 
   // ===== Notes =====
   if (cfg.notes) {
@@ -262,6 +321,54 @@ function renderDocument(cfg: DocConfig) {
     doc.setTextColor(...MUTED)
     const noteLines = doc.splitTextToSize(cfg.notes, pageWidth - margin * 2)
     doc.text(noteLines, margin, y + 5)
+    y += 5 + noteLines.length * 4
+  }
+
+  // ===== Payment details (bank block), below the document body =====
+  if (hasBankDetails(cfg.bank)) {
+    const rows: Array<[string, string]> = []
+    if (cfg.bank.accountName) rows.push(['Account name', cfg.bank.accountName])
+    if (cfg.bank.bankName) rows.push(['Bank', cfg.bank.bankName])
+    if (cfg.bank.branch) rows.push(['Branch', cfg.bank.branch])
+    if (cfg.bank.bankCode) rows.push(['Bank code', cfg.bank.bankCode])
+    if (cfg.bank.accountNumber) rows.push(['Account number', cfg.bank.accountNumber])
+    if (cfg.bank.swift) rows.push(['SWIFT / BIC', cfg.bank.swift])
+
+    // Two balanced columns so the block stays shallow at the foot of the page
+    const perColumn = Math.ceil(rows.length / 2)
+    const boxHeight = 12 + perColumn * 5
+
+    y += 10
+    if (y + boxHeight > pageHeight - 14) {
+      doc.addPage()
+      y = margin
+    }
+
+    doc.setFillColor(247, 249, 252)
+    doc.setDrawColor(...BORDER)
+    doc.setLineWidth(0.3)
+    doc.rect(margin, y, pageWidth - margin * 2, boxHeight, 'FD')
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.setTextColor(...DARK)
+    doc.text('BANK DETAILS', margin + 4, y + 6)
+
+    const colWidth = (pageWidth - margin * 2) / 2
+    doc.setFontSize(8.5)
+    rows.forEach((row, i) => {
+      const col = Math.floor(i / perColumn)
+      const rowY = y + 12 + (i % perColumn) * 5
+      const labelX = margin + 4 + col * colWidth
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(...MUTED)
+      doc.text(`${row[0]}:`, labelX, rowY)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(...DARK)
+      doc.text(row[1], labelX + 32, rowY)
+    })
+
+    y += boxHeight
   }
 
   // ===== Footer =====
@@ -288,13 +395,30 @@ function statusColor(status: string): [number, number, number] {
   return [21, 101, 192]
 }
 
+/**
+ * Pull the business profile (set in Settings → Business Profile) into the header
+ * and payment blocks, so every caller brands documents the same way.
+ */
+function orgBranding(org: Organization) {
+  return {
+    logo: org.logo,
+    orgAddress: org.address,
+    orgEmail: org.email,
+    orgPhone: org.phone,
+    orgTaxId: org.taxId,
+    orgVatNumber: org.vatNumber,
+    bank: org.bankDetails,
+  }
+}
+
 export function exportInvoicePDF(
   invoice: SalesInvoice,
   org: Organization,
   customerInfo: { name: string; email: string; phone?: string; address: string; taxId: string }
 ) {
   renderDocument({
-    docLabel: 'INVOICE',
+    // A document that carries tax is a VAT invoice; without tax it's a plain invoice.
+    docLabel: hasVat(invoice.taxTotal, invoice.lines) ? 'VAT INVOICE' : 'INVOICE',
     number: invoice.number,
     date: invoice.date,
     dueDate: invoice.dueDate,
@@ -310,6 +434,7 @@ export function exportInvoicePDF(
     notes: invoice.notes,
     currency: org.currency,
     org,
+    ...orgBranding(org),
     filename: `${invoice.number}.pdf`,
   })
 }
@@ -320,7 +445,7 @@ export function exportBillPDF(
   supplierInfo: { name: string; email: string; phone?: string; address: string; taxId: string }
 ) {
   renderDocument({
-    docLabel: 'BILL',
+    docLabel: hasVat(bill.taxTotal, bill.lines) ? 'VAT BILL' : 'BILL',
     number: bill.number,
     date: bill.date,
     dueDate: bill.dueDate,
@@ -336,6 +461,7 @@ export function exportBillPDF(
     notes: bill.notes,
     currency: org.currency,
     org,
+    ...orgBranding(org),
     filename: `${bill.number}.pdf`,
   })
 }
