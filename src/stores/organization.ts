@@ -222,6 +222,31 @@ export const useOrganizationStore = defineStore('organization', () => {
     }
   }
 
+  /**
+   * Save the business profile — logo, location, contact and bank details. These
+   * are the fields printed on invoice / bill PDFs (see src/utils/pdf.ts).
+   * Owner-only, enforced by ownerOrgEdit() in firestore.rules.
+   */
+  async function updateOrgProfile(profile: Partial<Organization>) {
+    if (!currentOrg.value) throw new Error('No organization')
+    if (myRole.value !== 'owner') throw new Error('Only the owner can edit the business profile')
+
+    const allowed = ['name', 'logo', 'address', 'email', 'phone', 'taxId', 'vatNumber', 'bankDetails'] as const
+    const payload: Record<string, any> = {}
+    for (const key of allowed) {
+      if (key in profile) payload[key] = (profile as any)[key] ?? ''
+    }
+    if (Object.keys(payload).length === 0) return
+
+    log.info('Updating org profile', { orgId: currentOrg.value.id, fields: Object.keys(payload) })
+    await updateDoc(doc(db, 'organizations', currentOrg.value.id), payload)
+
+    // Mirror locally so open PDFs/headers pick the change up without a refetch
+    Object.assign(currentOrg.value, payload)
+    const listed = organizations.value.find((o) => o.id === currentOrg.value!.id)
+    if (listed) Object.assign(listed, payload)
+  }
+
   function subscribeMembers() {
     if (!currentOrg.value) return
     if (membersUnsub) membersUnsub()
@@ -440,6 +465,7 @@ export const useOrganizationStore = defineStore('organization', () => {
     loading, orgId, orgName, orgStatus, isOrgApproved, myRole, can,
     fetchOrganizations, setCurrentOrg, createOrganization,
     subscribeMembers, subscribeInvitations, subscribeMyInvitations,
+    updateOrgProfile,
     inviteMember, cancelInvitation,
     acceptInvitation, declineInvitation,
     updateMemberRole, removeMember,
